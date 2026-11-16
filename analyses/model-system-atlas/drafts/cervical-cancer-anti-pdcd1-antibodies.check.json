@@ -1,0 +1,147 @@
+{
+ "draft": "analyses/model-system-atlas/drafts/cervical-cancer-anti-pdcd1-antibodies.json",
+ "index_base": 1,
+ "checked_by": "CHECKER_BRIEF",
+ "lint": "0 findings",
+ "entries": [
+  {
+   "cell": "engagement",
+   "index": 1,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "note": "Lou 2021 full text (PMC8479189, BioC): quote verbatim; CD3+ RO 95.5-93.3% at 5/25/100 mg/kg weekly. Opening untested at 2019 proxy (NCT03972722 start 2019-05-15, registry checked) is fine."
+  },
+  {
+   "cell": "engagement",
+   "index": 2,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "note": "Lou 2021 full text (PMC8479189): quote verbatim bar citation '(27)'; epub 2021-09-15, after the phase Ia human RO and earlier anti-PD-1 occupancy, so retro (target-level engagement rule). Zimberelimab, iv, other_disease (pan-tumour phase Ia) right; low confidence apt.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "dose",
+   "index": 1,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "note": "Quote verbatim. confidence_note is wrong that repeat-dose levels are unstated: the 26-week study used 5, 25 and 100 mg/kg once weekly (paper Methods). Status unaffected."
+  },
+  {
+   "cell": "dose",
+   "index": 2,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Liu 2021 abstract (PMID 33691262, epub 2021-03-07): 'DLT was not observed in phase Ia part.' verbatim. Monkey 26-week margin first public 2021-09-15, after the drug's own phase Ia: retro, year 2021. Zimberelimab, iv, other_disease right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "efficacy",
+   "index": 1,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "note": "Quote verbatim (Lou 2021 abstract and Results: 10 and 20 mg/kg in hPD-1 KI MC38). Opening untested proxy fine."
+  },
+  {
+   "cell": "efficacy",
+   "index": 2,
+   "verdict": "corrected",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "proposed_status": "retro",
+   "proposed_year": 2021,
+   "rule": "DRAFTER_BRIEF rule 6: a paired comparison's year is the later of its two sides' earliest public dates; patient side (NCT03972722) first public in IGCS 2020 abstract 357 (IJGC 30(Suppl 4):A147, Crossref-registered 2020-11-13, doi 10.1136/ijgc-2020-IGCS.307, trial number nct03972722), model side Lou 2021 (2021-09-15)",
+   "note": "Not 2022: SITC 2022 abstract 673 is not the first. IGCS 2020 abstract 357 (same NCT03972722, Wu/Xia) reported ORR ~27%, DCR ~54%. Later side is Lou 2021 (2021-09-15), so 2021. Retro holds: pembrolizumab cervical responses (2018) preceded MC38 data.",
+   "checked_by": "CHECKER_BRIEF / dates",
+   "adjudicated_status": "retro",
+   "adjudication_note": "Status retro either way (rule 'retro': efficacy is a target claim; pembrolizumab cervical responses 2018 preceded Lou 2021). Rule 6: patient side public in IGCS 2020 abstract 357 (Crossref 2020-11-13); later side Lou 2021, so year 2021."
+  },
+  {
+   "cell": "efficacy",
+   "index": 3,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "ClinicalTrials.gov NCT03912402: actual start 2018-12-25, first posted 2019-04-11, so year and model_first_use_year 2018 right. Gordeev 2024 abstract quote verbatim. untested/unsettled stands (FERMATA OS unreported). Prolgolimab, iv, stage_or_line right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "safety",
+   "index": 1,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "note": "Quote verbatim; monkeys named no harm. Patient side confirmed: hypothyroidism 26.7% (Xia 2023), grade>=3 irAE 4.5% (Liu 2021). Whether healthy cynomolgus could show PD-1 thyroiditis is a judgement call, raised as a rule question."
+  },
+  {
+   "cell": "dose",
+   "index": 3,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "checked_by": "CHECKER_BRIEF / models",
+   "note": "Demidov 2024 full text (PMC11408354, BioC): quote verbatim in Methods. 2-compartment popPK on MIRACULUM 1 mg/kg Q2W and 3 mg/kg Q3W chose 250 mg Q3W; FLAT start 2022-02 (registry), so opening untested at 2022 proxy fits."
+  },
+  {
+   "cell": "dose",
+   "index": 4,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "checked_by": "CHECKER_BRIEF / models",
+   "note": "Quote verbatim. Model predicted 250 mg Ctrough comparable to 3 mg/kg Q3W, above 1 mg/kg Q2W; observed above both: target reached, same. Model run before FLAT dosing, so not retro. Epub 2024-09-04; registry first posted 2023-03-24, no results."
+  },
+  {
+   "cell": "efficacy",
+   "index": 4,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "note": "Fogt 2023 ASCO abstract (online 2023-05-31): RECIST 1.1 ORR is primary, 63.8% quote verbatim; single-arm, partners named. CT26 first public 2024-10-04, after it: retro, year 2024. CPS>=1 45/58 (<80%), so stage_or_line; prolgolimab, iv right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "safety",
+   "index": 2,
+   "verdict": "corrected",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "proposed_status": "retro",
+   "proposed_year": 2021,
+   "rule": "DRAFTER_BRIEF rule 6: a paired comparison's year is the later of its two sides' earliest public dates; patient side (NCT03972722) first public in IGCS 2020 abstract 357 (IJGC 30(Suppl 4):A147, Crossref-registered 2020-11-13, doi 10.1136/ijgc-2020-IGCS.307, trial number nct03972722), model side Lou 2021 (2021-09-15)",
+   "note": "Not 2022: IGCS 2020 abstract 357 (NCT03972722) already called safety 'manageable'. Later side is Lou 2021 monkey claim (2021-09-15), so 2021. Retro holds: zimberelimab's own patient safety (IGCS 2020, Liu 2021) preceded the monkey claim.",
+   "checked_by": "CHECKER_BRIEF / dates",
+   "adjudicated_status": "retro",
+   "adjudication_note": "Status retro either way (dose/safety retrodiction: zimberelimab's own IGCS 2020 and Liu 2021 safety preceded the monkey claim). Rule 6: patient side IGCS 2020 abstract 357 (Crossref 2020-11-13); later side Lou 2021, so year 2021."
+  }
+ ],
+ "missing": [
+  "No missed model system found: no public preclinical package for balstilimab or geptanolimab, and no cervical organoid or patient-cell comparison for any member drug (searched via fc.py).",
+  "Patient side not in the draft, though no track would change: geptanolimab phase II in PD-L1+ R/M cervical cancer, 3 mg/kg Q2W (JCO 2023;41(16_suppl):5535, https://ascopubs.org/doi/10.1200/JCO.2023.41.16_suppl.5535). It has no public model, so it could only appear in a note.",
+  "Balstilimab BLA withdrawn on FDA advice after pembrolizumab's full approval, not for efficacy (Agenus press release 2021-10-22, https://investor.agenusbio.com/news/news-details/2021/Agenus-Provides-Update-on-Balstilimab-Development-10-22-2021/default.aspx). The context note could mention it.",
+  "Russian registration of a drug for cervical cancer, possibly prolgolimab (https://www.thepharmaletter.com/pharma-news/russia-registers-new-drug-for-treatment-of-aggressive-forms-of-female-cancer). Not opened. It may be a regulator decision on CAESURA, worth a check for the prolgolimab track."
+ ],
+ "overall": "accept_with_corrections",
+ "rule_questions": [
+  "Dose 2: the monkey 26-week margin was certainly generated before the phase Ia (IND package) but first published 6 months after the phase Ia paper. Does 'a model source stated the margin before the trial' require public statement before the trial, or only that the model was run before it?",
+  "Safety 1: can healthy cynomolgus monkeys show immune-mediated hypothyroidism under anti-PD-1 alone? If yes, the 26-week study's silence is a contra miss rather than untested/no_prediction. The brief's cytokine-release example does not settle this for irAEs.",
+  "Efficacy 2: a hPD-1 knock-in MC38 colon model paired with a PD-L1-selected cervical trial. Is PD-L1 selection a 'condition the model never tested' that should force untested, or only eligibility?",
+  "Dose 4 (poppk-prolgolimab-flat): the popPK prediction was first made public in the same 2024 paper that reports the observed troughs, though the model was run before FLAT dosed. Prospective (same) or does public-only-afterwards make it retro? Same question as Dose 2."
+ ]
+}

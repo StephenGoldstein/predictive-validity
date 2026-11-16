@@ -16,14 +16,12 @@
   {
    "cell": "engagement",
    "index": 2,
-   "verdict": "corrected",
+   "verdict": "confirmed",
    "source_resolves": true,
    "quote_found": "abstract_only",
    "status_supported": true,
-   "proposed_status": "same",
-   "proposed_year": 2011,
-   "rule": "6",
-   "note": "Verbatim in abstract; FEV1 rise is a downstream readout of the guinea-pig model, same holds. NCT00939211 results (primary peak and 22-26 h FEV1) posted 2011-08-05 and Mete 2011 epub 2011-10-08: pairing public in 2011 (rule 6)."
+   "note": "Quote in Bjermer abstract. NCT00939211 results 2011-08-05 precede Mete 2011 (online 2011-10), and tiotropium earlier: retro, pairing public 2011. Judgement still says dated 2012 via Bjermer; stale text, status and year right.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "engagement",
@@ -37,14 +35,13 @@
   {
    "cell": "engagement",
    "index": 4,
-   "verdict": "corrected",
+   "verdict": "confirmed",
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "proposed_status": "same",
-   "proposed_year": 2016,
-   "rule": "6",
-   "note": "Verbatim in MedR; registry 2018-12-31 verified. But NCT02040792 results (D28 trough FEV1 met at 88-350 ug) posted 2016-12-07 and Quinn 2017 (epub 2017-10-04) showed >24 h bronchodilation: earliest public pairing is 2016 (rule 6)."
+   "rule": "DRAFTER_BRIEF rule 6: earliest public date; paired year is the later side",
+   "note": "Year 2013 confirmed: Theravance Q4 2011 results release (2012-02-10) says Phase 2a single-dose COPD results announced Nov 2011; model JPET online 2013-05-18 (Crossref). Retro right (same-target patient bronchodilation earlier). Stale 'Dated 2016' sentence remains in note.",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "dose",
@@ -58,14 +55,12 @@
   {
    "cell": "dose",
    "index": 2,
-   "verdict": "corrected",
+   "verdict": "confirmed",
    "source_resolves": true,
    "quote_found": "abstract_only",
    "status_supported": true,
-   "proposed_status": "same",
-   "proposed_year": 2011,
-   "rule": "6",
-   "note": "Verbatim in abstract; once-daily reached, systemic effects only at 1200 ug. Jorup 2014 confirms a stated guinea-pig lung-vs-salivation therapeutic index that held, so margin_stated should be true (decision 16). Pairing public 2011 (rule 6)."
+   "note": "Quote verbatim. AZD9164's own registry results (2011-08-05) precede Mete 2011: retro, 2011. margin_stated true rests on Jorup 2014, after the trial, so no pre-trial margin; field is post hoc, status unaffected.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "dose",
@@ -79,14 +74,13 @@
   {
    "cell": "dose",
    "index": 4,
-   "verdict": "corrected",
+   "verdict": "confirmed",
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "proposed_status": "same",
-   "proposed_year": 2016,
-   "rule": "6",
-   "note": "Verbatim in ClinPharmR; margin_stated true is right under decision 16 (dry mouth 0/1/3 verified in MedR). Dose-ranging NCT02040792 results posted 2016-12-07 (350 ug no gain over 175 ug) pre-date the review (rule 6)."
+   "rule": "DRAFTER_BRIEF rule 6: earliest public date; paired year is the later side; retrodiction (dose: same drug's own earlier patient result)",
+   "note": "Year 2013 and retro confirmed: revefenacin's own Phase 2a (Nov 2011, peak FEV1 met, well tolerated; 2013-09-04 release: 350/700 ug sustained 24-h bronchodilation 'previously reported') precedes JPET model online 2013-05-18. retrodiction true right.",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "efficacy",
@@ -100,14 +94,12 @@
   {
    "cell": "efficacy",
    "index": 2,
-   "verdict": "corrected",
+   "verdict": "confirmed",
    "source_resolves": true,
    "quote_found": "abstract_only",
    "status_supported": true,
-   "proposed_status": "same",
-   "proposed_year": 2011,
-   "rule": "6",
-   "note": "Verbatim in abstract; registry confirms the primary endpoints were peak and 22-26 h FEV1, both met. Pairing public 2011 (rule 6). The judgement's claim that PF-03635659 has no published model side is wrong: Glossop 2011, doi 10.1021/jm200884j."
+   "note": "Quote in Bjermer abstract; registry primaries (peak, 22-26 h FEV1) met, posted 2011-08-05 before Mete 2011 online 2011-10: retro dated 2011 correct; drug, inhaled route, unselected COPD match.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "efficacy",
@@ -121,14 +113,13 @@
   {
    "cell": "efficacy",
    "index": 4,
-   "verdict": "corrected",
+   "verdict": "confirmed",
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "proposed_status": "same",
-   "proposed_year": 2016,
-   "rule": "6",
-   "note": "Verbatim in MedR; NCT02459080/NCT02512510 results 2018-12-31 and both Ferguson 2019 quotes verified. Phase 2b NCT02040792 (primary D28 trough FEV1 met) posted 2016-12-07, Pudi 2017 epub 2017-11-02: earliest comparison is 2016 (rule 6)."
+   "rule": "DRAFTER_BRIEF rule 6: earliest public date; paired year is the later side",
+   "note": "Year 2013 confirmed: Phase 2a Nov 2011; Study 0091 release 2013-09-04 (SEC EX-99) met day-7 trough FEV1 at all six doses; model online 2013-05-18. Retro stands. Judgement still says 'dated 2018' and note 'Dated 2016': stale prose.",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "safety",
@@ -146,7 +137,9 @@
    "source_resolves": true,
    "quote_found": "abstract_only",
    "status_supported": true,
-   "note": "Verbatim in abstract, which states the initial transient dose-related FEV1 fall with cough in COPD patients. A guinea-pig airway-resistance model could have shown it; Jorup 2014 says re-evaluation of preclinical data gave no explanation. Contra holds."
+   "rule": "DRAFTER_BRIEF rule 6: earliest public date; paired year is the later side; retrodiction (safety: same drug's own earlier patient result) scored contra when not reproduced",
+   "note": "Year 2011 confirmed: NCT00939211 results posted 2011-08-05 (15-min FEV1 1.30/1.25 vs 1.49 L placebo; cough 6/18 vs 0); BMCL model created 2011-10-15. Same-drug result first, so retrodiction true; model missed it, contra stands.",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "safety",
@@ -172,11 +165,14 @@
    "verdict": "corrected",
    "source_resolves": true,
    "quote_found": "verbatim",
-   "status_supported": true,
-   "proposed_status": "same",
-   "proposed_year": 2016,
-   "rule": "6",
-   "note": "Verbatim in SumR; MedR Table 28 (22/356, 28/364, 18/335) and 12-week dry mouth 0/1/3 verified. Earliest systemic-AE comparison is NCT02040792 results 2016-12-07 / Quinn 2017 (no significant systemic antimuscarinic activity); the 52-week tiotropium partial is 2018. Partial-vs-contra is a rule question."
+   "status_supported": false,
+   "proposed_status": "retro",
+   "proposed_year": 2017,
+   "rule": "retrodiction (safety: same drug's own patient result, public earlier, makes the model one; post-dating alone); partial retro = retro + source_calls_it partial",
+   "note": "Year 2017 confirmed: TBPH Q2 2017 10-Q: 'In July 2017, we announced positive top-line results from the twelve-month safety study', AEs comparable to active comparator. But revefenacin Phase 2a 'generally well-tolerated' (Nov 2011) precedes model (2013-05), as dose 4 holds: retro, partial.",
+   "checked_by": "CHECKER_BRIEF / dates",
+   "adjudicated_status": "same",
+   "adjudication_note": "Retrodiction rule: a retro is scored against patient results public before the model (2011 Phase 2a, at 2013). The 52-week tiotropium comparison post-dates the model, so it is the first prospective prediction, scored as usual: same, partial."
   },
   {
    "cell": "engagement",
@@ -196,9 +192,8 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "rule": "6",
-   "note": "Registry quote verbatim (primary-outcome description); results first posted 2016-02-19, trial ran 2010-01 to 2010-06. Mean difference vs placebo 0.0507/0.0788/0.0927 L (CI lower 0.0059/0.0431/0.0560), tiotropium 0.0613. Downstream FEV1 readout; 2016 is the earliest public pairing.",
-   "checked_by": "CHECKER_BRIEF_v3 / models"
+   "note": "Quote in NCT01033487 outcome description; results posted 2016-02-19 (confirmed). Glossop 2011 (online 2011-09-20) post-dates tiotropium and AZD9164 COPD FEV1: retro right for a target claim; no earlier PF-03635659 patient report found.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "engagement",
@@ -218,9 +213,8 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "rule": "1",
-   "note": "Hegde 2018 (PMC5927803, epub 2018-04-30, received 2017-11-16) full text read; quote verbatim (U+2010 hyphens). Human bronchus offset t1/2 >10 h stated; the paper itself sets it beside Phase 2 24-h data, so comparison_stated true. 2018 first public pairing.",
-   "checked_by": "CHECKER_BRIEF_v3 / models"
+   "note": "Quote verbatim in Hegde 2018 (PMC5927803, U+2010 hyphens). Human-bronchus data first public 2018, after revefenacin's own results (2009/2013 releases, 2016 registry) and class FEV1 results: retro 2018 correct.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "dose",
@@ -262,9 +256,8 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "rule": "16",
-   "note": "Hegde quote verbatim in Discussion. Once-daily regimen implied by the tissue offset was reached (NCT02040792 results 2016-12-07, NCT01704404 2017-03-13). margin_stated false right; isolated bronchi state no tolerability margin, the rat antisialagogue track carries that end.",
-   "checked_by": "CHECKER_BRIEF_v3 / models"
+   "note": "Quote verbatim in Hegde 2018. Revefenacin's own patient results public well before the 2018 tissue data: retro holds; margin_stated false right for isolated bronchi; drug/route/population match.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "efficacy",
@@ -284,9 +277,8 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "rule": "4",
-   "note": "Registry lists change from baseline trough FEV1 as a primary outcome (PK measures co-primary); all three doses beat placebo with CI lower bounds above zero, n=22 single-dose crossover. endpoint_role primary and same hold; medium confidence right.",
-   "checked_by": "CHECKER_BRIEF_v3 / models"
+   "note": "Registry primary (change in trough FEV1) met at 180/580/1450 ug; quote verbatim. Retro under target-claim rule; year 2016 is results posting, the earliest public patient result found.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "efficacy",
@@ -306,9 +298,8 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "rule": "4",
-   "note": "Hegde quote verbatim. Phase 2b primary (day-28 trough FEV1, NCT02040792) and both Phase 3 day-85 primaries (NCT02459080, NCT02512510, results 2018-12-31) met; endpoint_role primary. Pudi 2017 quote left null is acknowledged, not a defect.",
-   "checked_by": "CHECKER_BRIEF_v3 / models"
+   "note": "Quote verbatim (Hegde 2018), comparison stated; primary trough FEV1 met in Phase 2b and Phase 3. Model first public 2018 after revefenacin and class results: retro, year 2018.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "safety",

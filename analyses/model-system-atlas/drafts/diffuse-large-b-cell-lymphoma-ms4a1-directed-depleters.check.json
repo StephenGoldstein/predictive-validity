@@ -1,0 +1,159 @@
+{
+  "draft": "analyses/model-system-atlas/drafts/diffuse-large-b-cell-lymphoma-ms4a1-directed-depleters.json",
+  "index_base": 1,
+  "checked_by": "CHECKER_BRIEF",
+  "entries": [
+    {
+      "cell": "engagement",
+      "index": 1,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "abstract_only",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / dates",
+      "note": "Year 2017, untested: FDA BLA 761324 review lists 14 Aug 2017 pre-IND meeting on the nonclinical package (5-week cyno study); opener precedes 2019 pairing. Engelberts quote verbatim in abstract."
+    },
+    {
+      "cell": "engagement",
+      "index": 2,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "abstract_only",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / dates",
+      "note": "Year 2019: Lugtenburg ASH 2019 (Blood 134:758, 13 Nov 2019) reports cyno B-cell depletion and complete depletion of circulating B cells in patients. Retro stands (rituximab depletion long known). Hutchings quote verbatim."
+    },
+    {
+      "cell": "dose",
+      "index": 1,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "verbatim",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / fields",
+      "note": "FDA BLA 761263 multidiscipline review (bundle txt) quote verbatim. Year 2015 = model_first_use_year (NCT02500407 proxy). Mosunetuzumab IV in patients; drug, route iv, stage_or_line correct; untested/unpublished stands."
+    },
+    {
+      "cell": "dose",
+      "index": 2,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "abstract_only",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / fields",
+      "note": "Hosseini 2020 (epub 2020-08-28) quote verbatim. Opener year 2020 = model_first_use_year. Drug mosunetuzumab, route iv, stage_or_line correct."
+    },
+    {
+      "cell": "dose",
+      "index": 3,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "abstract_only",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / fields",
+      "note": "Budde 2022 quote verbatim; mosunetuzumab given IV. Schuster ASH 2019 (13 Nov 2019) step-up to 1/2/60 mg predates Hosseini (28 Aug 2020): retro on drug's own result, year 2020 right. Judgement still says 'Scored dose same' (stale prose)."
+    },
+    {
+      "cell": "efficacy",
+      "index": 1,
+      "verdict": "corrected",
+      "source_resolves": true,
+      "quote_found": "abstract_only",
+      "status_supported": true,
+      "proposed_status": "untested",
+      "proposed_year": 2018,
+      "rule": "Evidence rule 6: each cell opens at model_first_use_year with status untested, proxy allowed",
+      "checked_by": "CHECKER_BRIEF / fields",
+      "note": "Engelberts 2020 quote verbatim; drug epcoritamab, route sc, stage_or_line correct. Opener dated 2020 but model_first_use_year 2018 (BLA study proxy): open at 2018.",
+      "adjudicated_status": "untested",
+      "adjudication_note": "Rule 6: cell opens at model_first_use_year (2018 proxy) with status untested; status unchanged, opener year moves from 2020 to 2018. Not the track latest, no untested_reason needed."
+    },
+    {
+      "cell": "efficacy",
+      "index": 2,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "abstract_only",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / fields",
+      "note": "Thieblemont (epub 2022-12-22) quote verbatim; single-arm ORR primary design in note. Retro supported: rituximab, mosunetuzumab ASH 2019 and epcoritamab's own ASH 2019 responses predate Jan 2020. sc, epcoritamab, stage_or_line correct."
+    },
+    {
+      "cell": "efficacy",
+      "index": 3,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "verbatim",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / fields",
+      "note": "CT.gov API: NCT04628494 results first posted 2026-11-03; OS sole primary, stratified HR 0.96 (0.77-1.20), log-rank p 0.7285; quote joins field values. Tier 3, trial_unreported false; outcome_tested negative, status follows retro surrogate; year 2026 holds."
+    },
+    {
+      "cell": "safety",
+      "index": 1,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "abstract_only",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / dates",
+      "note": "Year 2017, untested: FDA BLA 761324 review, 14 Aug 2017 pre-IND nonclinical safety package (cyno toxicology); opener precedes 2019 pairing. Engelberts SC-cytokine quote verbatim in abstract."
+    },
+    {
+      "cell": "safety",
+      "index": 2,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "abstract_only",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / dates",
+      "note": "Year 2019: Lugtenburg ASH 2019 (13 Nov 2019) gives SC cyno cytokine attenuation and 'all CRS events were non-severe' (G1-2); no earlier epcoritamab patient CRS, so same, not retro. Judgement prose still says 2021->2020 (stale)."
+    },
+    {
+      "cell": "safety",
+      "index": 3,
+      "verdict": "corrected",
+      "source_resolves": true,
+      "quote_found": "abstract_only",
+      "status_supported": true,
+      "proposed_status": "untested",
+      "proposed_year": 2014,
+      "rule": "Evidence rule 6: each cell opens at model_first_use_year with status untested, proxy allowed",
+      "checked_by": "CHECKER_BRIEF / fields",
+      "note": "Hamlin 2022 (epub 2022-05-05) quote verbatim; MT-3724 given IV, drug mt-3724, stage_or_line correct; untested/unpublished stands. Track's only entry: open it at model_first_use_year 2014 proxy (NCT02361346), not 2022.",
+      "adjudicated_status": "untested",
+      "adjudication_note": "Rule 6: the track opens at model_first_use_year (2014 proxy) with status untested; untested_reason unpublished (rule 5) already set and stands."
+    },
+    {
+      "cell": "efficacy",
+      "index": 4,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "verbatim",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / fields",
+      "note": "van der Horst 2021 (epub 2021-02-18) abstract quote verbatim; opener year 2021 = model_first_use_year. Drug epcoritamab, route sc (patients compared), stage_or_line correct."
+    },
+    {
+      "cell": "efficacy",
+      "index": 5,
+      "verdict": "confirmed",
+      "source_resolves": true,
+      "quote_found": "verbatim",
+      "status_supported": true,
+      "checked_by": "CHECKER_BRIEF / fields",
+      "note": "Full text PMC7892878 quote verbatim (Discussion). FIH DLBCL responses public first (ASH 2019): retro. Drug epcoritamab, route sc, stage_or_line correct."
+    }
+  ],
+  "missing": [
+    "Mosunetuzumab (CD20-TDB) cynomolgus + xenograft track: Sun 2015 Sci Transl Med doi:10.1126/scitranslmed.aaa4802 (monkey B-cell depletion at 1 mg/kg, in-vivo tumour killing) vs Budde 2022 doi:10.1200/JCO.21.00931 (patient B-cell depletion; aggressive B-NHL ORR 34.9%) -- engagement and efficacy tracks for a second member drug.",
+    "Mosunetuzumab cynomolgus toxicology (FDA BLA 761263 review: CRS-like signs, 26-week study infections/mortality from B-cell depletion) vs patient CRS and infections -- a safety track not drawn.",
+    "Imvotamab (IgM CD20xCD3) preclinical models (Cancer Res 2022;82(12 Suppl):4179) vs Phase 1/2 NCT04082936 in R/R NHL incl. DLBCL, terminated; IGM halted imvotamab development (BioPharma Dive, Jan 2025) -- a member-drug failure the draft does not show.",
+    "EPCORE DLBCL-1 (NCT04628494): EHA 2026 abstract (Fox et al.) reports a statistically significant PFS improvement alongside the non-significant OS; the draft's efficacy entry 3 should record this."
+  ],
+  "overall": "accept_with_corrections",
+  "rule_questions": [
+    "A randomized outcome trial against active therapy (EPCORE DLBCL-1, OS negative) that does not change the track's status: separate dated entry, or outcome_tested/patient_trials on the earlier surrogate entry? And is superiority over chemoimmunotherapy a condition the vehicle-controlled xenografts never tested (untested) rather than an outcome trial of their surrogate?",
+    "readout_tier for depletion of the target-bearing cell by a depleter class: direct, proximal or downstream?",
+    "Opening entry year: model_first_use_year (2017 per FDA pre-IND) or the model source's publication year (2020)?"
+  ]
+}

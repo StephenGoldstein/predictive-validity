@@ -1,0 +1,261 @@
+{
+ "draft": "analyses/model-system-atlas/drafts/myelofibrosis-jak2-inhibitors.json",
+ "index_base": 1,
+ "checked_by": "CHECKER_BRIEF",
+ "entries": [
+  {
+   "cell": "engagement",
+   "index": 1,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Wernig 2008 (PMID 18394554) abstract verbatim; untested opener 2008; fedratinib, oral, unselected match the model run and patients compared.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "engagement",
+   "index": 2,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "rule": "Evidence rule 6 (dating): year is the earliest public date, congress abstract included",
+   "note": "ASH 2009 abs 755 (Crossref 2009-11-20): median granulocyte allele burden fall 48%. ASH 2008 abs 97 promised but gave no allele data. Model Apr 2008 precedes; 2009, same, retrodiction false confirmed.",
+   "checked_by": "CHECKER_BRIEF / dates"
+  },
+  {
+   "cell": "dose",
+   "index": 1,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Wernig abstract verbatim; model stated no exposure target or margin, so untested/no_prediction right; fedratinib, oral, unselected right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "efficacy",
+   "index": 1,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Wernig 2008 abstract verbatim; untested opener 2008; fedratinib, oral, unselected right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "efficacy",
+   "index": 2,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "rule": "Evidence rule 6 (dating): year is the earliest public date, congress abstract included",
+   "note": "ASH 2013 abs 393 (Crossref 2013-11-15) is JAKARTA (NCT01437787) primary SVR35 result. Model 2008 precedes; 2013, same, primary endpoint confirmed.",
+   "checked_by": "CHECKER_BRIEF / dates"
+  },
+  {
+   "cell": "safety",
+   "index": 1,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "note": "FDA multidiscipline review in bundle has the quote verbatim; untested opener with 2007 IND proxy; fedratinib, oral, unselected right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "safety",
+   "index": 2,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Wernig abstract verbatim; untested opener 2008, its tolerability claim scored in safety 9 per passing-tolerability ruling; fedratinib, oral, unselected right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "safety",
+   "index": 3,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "rule": "Evidence rule 6 (dating): year is the earliest public date, congress abstract included",
+   "note": "ASH 2014 abs 1839 (2014-12-06): 8 patients platelet fall >=50%, drug-related platelet decrease, grade 4 thrombocytopenia discontinuation. Count-sparing claim ASH 2013 abs 3847 earlier, so retrodiction false. 2014 contra confirmed.",
+   "checked_by": "CHECKER_BRIEF / dates"
+  },
+  {
+   "cell": "safety",
+   "index": 4,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "note": "Review bundle verbatim (WE 7/608); contra on rat/dog tox track; 2019 right as tox data first public in the review; fedratinib, oral, unselected right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "engagement",
+   "index": 3,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Geron 2008 (PMID 18394555) abstract verbatim; untested opener 2008; fedratinib, oral, unselected right for the ex-vivo PV-progenitor track.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "engagement",
+   "index": 4,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "rule": "Evidence rule 6 (dating): year is the earliest public date, congress abstract included",
+   "note": "ASH 2012 abs 2837 (2012-11-16): 'Time-dependent pSTAT3 inhibition was observed at all doses' in MF patients. Not in Pardanani 2011 or ASH 2011 abs 3838 abstracts. Model 2008; 2012, same, retrodiction false confirmed.",
+   "checked_by": "CHECKER_BRIEF / dates"
+  },
+  {
+   "cell": "efficacy",
+   "index": 3,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Geron 2008 abstract last sentence verbatim; untested opener 2008; fedratinib, oral, unselected right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "efficacy",
+   "index": 4,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "rule": "Evidence rule 6 (dating): year is the earliest public date, congress abstract included",
+   "note": "ASH 2013 abs 393 (2013-11-15) JAKARTA primary SVR35 result; ex-vivo model 2008 precedes. 2013, same confirmed.",
+   "checked_by": "CHECKER_BRIEF / dates"
+  },
+  {
+   "cell": "safety",
+   "index": 5,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Zhang 2014 (PMID 25063672, epub 2014-07-25) abstract verbatim (hTHTR2); untested opener 2014; fedratinib, oral, unselected right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "safety",
+   "index": 6,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Zhang 2014 abstract verbatim (Caco-2 thiamine flux); post-dates 2013 WE cases, so retro with retrodiction true right; fedratinib, oral, unselected right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "safety",
+   "index": 7,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "note": "Review bundle verbatim (MDCK ThTr1/ThTr2); untested opener at 2017 proxy; fedratinib, oral, unselected right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "safety",
+   "index": 8,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "verbatim",
+   "status_supported": true,
+   "note": "Review bundle verbatim (24.5%/44.2% at 300 uM, ~100x Cmax); failed retrodiction, contra 2019 right; fedratinib, oral, unselected right.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "efficacy",
+   "index": 5,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "rule": "Evidence rule 6 (dating): year is the earliest public date, congress abstract included",
+   "note": "ASH 2013 abs 3847 (2013-11-15): NS-018 in JAK2V617F BMT mice cut splenomegaly, fibrosis. Nakaya 2011 BCJ used Ba/F3-inoculated and transgenic mice, not BMT. Opener 2013 untested confirmed.",
+   "checked_by": "CHECKER_BRIEF / dates"
+  },
+  {
+   "cell": "efficacy",
+   "index": 6,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "rule": "Evidence rule 6 (dating): year is the earliest public date, congress abstract included",
+   "note": "ASH 2014 abs 5572 (Crossref 2014-12-06): BMS-911543 in retroviral JAK2V617F transplant mouse, 'limited activity'. Opener 2014 untested confirmed.",
+   "checked_by": "CHECKER_BRIEF / dates"
+  },
+  {
+   "cell": "efficacy",
+   "index": 7,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Gangat (not Tefferi) 2023 (PMID 36599841) quote verbatim; registry NCT01236352 primary BOR 3 PR/21 CI of 42, posted 2019-05-21 confirmed; ASH 2013 gave no BOR; single-arm contra, retrodiction right. srcLabel should read Gangat 2023.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "efficacy",
+   "index": 8,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "rule": "Evidence rule 6 (dating): year is the earliest public date, congress abstract included",
+   "note": "ASH 2010 abs 4112 (2010-11-19): BMS-911543 in colony assays of JAK2V617F+ MPD patient progenitors, greater anti-proliferative response than normal. Opener 2010 untested confirmed.",
+   "checked_by": "CHECKER_BRIEF / dates"
+  },
+  {
+   "cell": "efficacy",
+   "index": 9,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "Gangat 2023 quote verbatim; assay post-dated fedratinib's 2011 responses, so retro right; primary BOR first public at registry posting 2019-05-21 (ASH 2013 reported SVR only). srcLabel should read Gangat 2023.",
+   "checked_by": "CHECKER_BRIEF / fields"
+  },
+  {
+   "cell": "safety",
+   "index": 9,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "rule": "Evidence rule 6 (dating): year is the earliest public date, congress abstract included",
+   "note": "ASH 2008 abs 97 (2008-11-16): 'Preliminary findings indicate that TG101348 is well tolerated in patients with myelofibrosis.' Wernig mouse Apr 2008 precedes; 2008, same, retrodiction false confirmed.",
+   "checked_by": "CHECKER_BRIEF / dates"
+  }
+ ],
+ "missing": [
+  "In-vitro thiamine-transport model (Caco-2 cells, recombinant hTHTR2): Zhang et al. 2014 Drug Metab Dispos, doi:10.1124/dmd.114.058883 (PMID 25063672) showed fedratinib inhibits thiamine uptake after the WE cases - a safety track, retrodiction: true, status retro (2014); the FDA review restates the ThTr1/ThTr2 assay (24.5%/44.2% at 300 uM).",
+  "Patient-derived JAK2V617F+ progenitor colony and xenograft model: Geron et al. 2008 Cancer Cell, doi:10.1016/j.ccr.2008.02.017 (PMID 18394555), TG101348 inhibited patient progenitor colonies and engraftment - an ex_vivo efficacy/engagement track (PV-derived cells) with no entry; BMS-911543 also inhibited CD34+ cells from JAK2V617F patients (cited in Pomicter 2015).",
+  "BMS-911543 on the same JAK2V617F BMT mouse track: Pomicter et al. 2015 Exp Hematol, doi:10.1016/j.exphem.2015.03.006 (PMID 25912019) found 'limited activity', no RBC effect and no allele-burden fall; NCT01236352 lists IWG best overall response as a PRIMARY outcome (results posted 2019-05-21), and Tefferi 2023 BCJ doi:10.1038/s41408-022-00780-9 reports 62% spleen response in 31 Mayo BMS-911543 patients. The draft's 'not scored/unsettled' needs an explicit entry or note.",
+  "BMS-911543 on JAK2V617F+ patient CD34+ progenitors (Purandare et al. 2012 Leukemia 26:280, cited by Pomicter 2015; DOI not verified): a member drug's run on the same ex-vivo progenitor system, could be an entry on track jak2v617f-patient-progenitor-colony; its trial outcome is a business stop."
+ ],
+ "overall": "accept_with_corrections",
+ "rule_questions": [
+  "BMS-911543: the mouse predicted limited activity (Pomicter 2015); NCT01236352 has IWG best overall response as a co-primary (3 PR/42 per draft) while a Mayo cohort reports 62% spleen response. Is this neg/same (limited model, limited IWG response, program stopped for business) or contra (patients' spleens responded) or unsettled because the stop was a business decision?",
+  "Fedratinib (Wernig, Gilliland lab) and NS-018 (Nakaya, Nippon Shinyaku) and BMS-911543 (Pomicter) used separately built JAK2V617F retroviral BMT mice; does 'one system' mean one model type (one model_id, as drafted) or one lab's system?",
+  "Should the rat/dog toxicology track carry a dose-cell entry (untested, unpublished) since its data set the FIH start but were public only in 2019, or is the dose cell correctly limited to the mouse track?",
+  "Safety contra for Wernicke's: the post-hoc rat thiamine study reached only 0.3x human AUC, and rodent chow is thiamine-replete - is WE a harm 'the species could have shown' at the exposures the tox package used?",
+  "Efficacy dating for single-arm trials: does an interim congress abstract that reports spleen response but not the registered primary (IWG best overall response) set the year (BMS-911543 ASH 2013), or only the first primary-endpoint result (registry 2019)?",
+  "Fedratinib mouse safety track: Wernig's 'no apparent toxicities' was followed by Wernicke's encephalopathy (2013 hold). Mice can develop thiamine-deficiency encephalopathy; should the mouse track take a contra entry, or is a short efficacy study not one that could show it?"
+ ]
+}

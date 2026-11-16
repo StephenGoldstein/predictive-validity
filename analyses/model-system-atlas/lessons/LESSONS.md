@@ -1,9 +1,11 @@
 # What a preclinical "yes" was worth
 
-Built on the 119 tracked tiles of the atlas (1,242 tracks, 849 with a compared outcome; 744 model systems),
-as stored on 2026-11-06. Main figure `atlas_lessons.*` (two panels), supplementary `atlas_lessons_families.*`,
-caption `atlas_lessons_caption.md`, design and decisions `DESIGN.md`, checks `robustness.md`; everything from
-`lessons.py all`. Statuses are the atlas's adjudicated statuses; nothing is re-adjudicated here.
+Built on the 166 tracked tiles of the atlas (1,386 tracks, 753 with a compared outcome; 1,050 model systems),
+as stored on 2026-11-15. A track is one model system for one member drug by one route; a prediction published
+after the patient result it is scored against is a retrodiction and is not counted. Main figure
+`atlas_lessons.*` (two panels), supplementary `atlas_lessons_families.*`, caption `atlas_lessons_caption.md`,
+design and decisions `DESIGN.md`, checks `robustness.md`; everything from `lessons.py all`. Statuses are the atlas's
+adjudicated statuses; nothing is re-adjudicated here.
 
 ## Read this first
 
@@ -13,73 +15,81 @@ positive prediction was worth once the drug was in patients, and, for engagement
 distinguished classes that went on to approval from classes that did not (both outcomes are present, so that
 one is a real discrimination test). Intervals are Wilson 95 % on tiles where tiles are the unit, and
 cluster-bootstrap 95 % over tiles where tracks are counted. Every test and sensitivity run is in
-`robustness.md`, written by the script.
+`robustness.md`, written by the script. A track is one model system for one member drug by one route, and a
+prediction counts only if it came before the patient result, each dated by its earliest public report (congress
+abstracts and press releases included): for engagement and efficacy, before any patient result on the same
+target; for dose and safety, before the same drug's own result. A later one is a retrodiction and is left out
+of every count.
 
 ## 1. A reached target is not a disease prediction (figure, panel a)
 
-The engagement headline matched in **105 of 119 tiles**: in 50 of 53 classes that were later approved and in
-55 of 66 that never were (Fisher p = 0.09). A matched engagement readout did not separate the classes that
-would succeed from the ones that would fail. Among the 105, efficacy was contradicted in 24: 23 of the 55
-never-approved classes (42 %, 30–55) and 1 of the 50 approved (2 %, 0–10).
+The engagement headline matched in **78 of 166 tiles**: in 37 of 78 classes that were later approved and in
+41 of 88 that never were (Fisher p = 1.00). A matched engagement readout did not separate the classes that
+would succeed from the ones that would fail. Among the 78, efficacy was contradicted in 20: 18 of the 41
+never-approved classes (44 %, 30–59) and 2 of the 37 approved (5 %, 2–18).
 
 | engagement readout of the headline track | tiles held | efficacy contradicted | 95 % |
 |---|---|---|---|
-| direct (occupancy, free target) | 27 | 9 (33 %) | 19–52 |
-| proximal (the target's own product) | 39 | 8 (20 %) | 11–36 |
-| downstream biomarker | 37 | 7 (19 %) | 10–34 |
+| direct (occupancy, free target) | 21 | 7 (33 %) | 17–55 |
+| proximal (the target's own product) | 27 | 5 (19 %) | 8–37 |
+| downstream biomarker | 28 | 6 (21 %) | 10–40 |
 
-The tier did not matter (chi-square p = 0.35; with the best tier among a tile's matched engagement tracks
-instead of the headline's, p = 0.50). The point estimate for direct occupancy is the worst, and that is all
-it is. By area, the contradicted share runs from 0 of 4 in gastroenterology and 1 of 10 in infectious disease
-to 3 of 6 in neurology and 3 of 3 in allergy (`engagement_summary.csv`).
+The tier did not matter (chi-square p = 0.46; with the best tier among a tile's matched engagement tracks
+instead of the headline's, p = 0.43). The point estimate for direct occupancy is the worst, and that is all
+it is. By area, the contradicted share runs from 0 of 5 in endocrine and 0 of 3 in metabolic
+to 2 of 4 in respiratory and 2 of 3 in allergy (`engagement_summary.csv`).
 
 Dose predictions, which ask only whether the exposure, occupancy or regimen target the model stated was reached
-in people and its stated tolerability margin held, held in 145 of 155 compared tracks (0.94, 0.90–0.97). A drug
+in people and its stated tolerability margin held, held in 117 of 133 compared tracks (0.88, 0.82–0.93). A drug
 that reached its target and still failed is an efficacy failure, counted once. Exposure is what preclinical work
 predicts well; a PD biomarker that moves in people is an engagement result and the record shows it being read
 as a disease result.
 
 ## 2. What the safety models missed (figure, panel b)
 
-Safety predictions held in 136 of 208 compared tracks (0.65, 0.59–0.72). A prediction is a stated finding or
-silence on a harm the species could have shown (brief v3). The 76 contradicted tracks were typed from the
-entry text by two coders, the second blind to the first: agreement on type 70 of 76 (kappa 0.87),
-on primary harm class 71 of 76 (kappa 0.93), every row sharing at least one harm class; the six type
-disagreements are listed in `robustness.md` and were resolved by re-reading the entry (three to the second
-coder, three kept). Four tracks typed as having no admissible comparison leave the count.
+Safety predictions held in 176 of 303 compared tracks (0.58, 0.53–0.64). A prediction is a stated finding or
+silence on a harm the species could have shown (brief v3). The 127 contradicted tracks (113 system–tile rows) were
+typed from the entry text by two coders, the second blind to the first: agreement on type 107 of 113 (kappa 0.92),
+on primary harm class 107 of 113 (kappa 0.94), all but one row sharing at least one harm class; the six type
+disagreements are listed in `robustness.md` and were resolved by re-reading the entry (two to the second
+coder, four kept). No track was typed as having no admissible comparison.
 
 | type | tracks | meaning |
 |---|---|---|
-| silent | 39 (+1 not showable) | no prediction on a harm the species could have shown; patients had it |
-| stated safe | 23 | the model said there would be no such harm; patients had it |
-| false alarm | 9 | the model predicted a harm patients never had |
+| silent | 51 (+2 not showable) | no prediction on a harm the species could have shown; patients had it |
+| stated safe | 52 | the model said there would be no such harm; patients had it |
+| false alarm | 22 | the model predicted a harm patients never had |
 
-Four of the 72 are one package serving several tiles (a cynomolgus toxicology package behind three PD-1
-tiles, one behind two, a pamiparib xenograft behind two), so the figure counts each (system, harm) once:
-**68 model systems, 86 unique system–harm pairs**. By harm: cardiovascular 13 (7 silent, 6 stated safe: QT
-prolongation twice after a clean hERG and dog telemetry, hypertension after "no blood-pressure effect",
-bradycardia after S1P3 sparing, heart failure, a blood-pressure rise the knockout said would not come),
-metabolic, endocrine and bone 13 (5 silent, 5 stated safe, 3 false alarms), liver 11 (8 silent),
-immune-mediated 9 (7 silent), CNS 8, haematological 6, gastrointestinal 6, skin 5.
+Twenty of the 127 repeat a system: one package serving several tiles (a cynomolgus toxicology package behind
+three PD-1 tiles, four behind two, a pamiparib xenograft among them) or several drugs of one tile, so the figure
+counts each (system, harm) once: **107 model systems, 137 unique system–harm pairs**. By harm: cardiovascular 23
+(9 silent, 12 stated safe: QT prolongation twice after a clean hERG and dog telemetry, hypertension after "no
+blood-pressure effect", bradycardia after S1P3 sparing and after clean dog telemetry, heart failure, atrial
+fibrillation after clean dog telemetry, a serious cardiovascular-event imbalance three human systems had cleared,
+a blood-pressure rise the knockout said would not come, hypertension after a xenograft "well tolerated"; 2 false
+alarms), metabolic, endocrine and bone 20 (3 silent, 13 stated safe, 4 false alarms), immune-mediated 14
+(10 silent), haematological 14, CNS 13, liver 11 (8 silent), gastrointestinal 11, skin 8.
 
-Repeat-dose toxicology in standard species held in 47 of 80 tracks (70 tiles); its 33 misses were 24
-silences, 4 explicit clean bills and 5 false alarms, and the silences fell on immune-mediated harms (8),
-cardiovascular (5) and liver (5) first. Cardiovascular safety pharmacology held in 9 of 13. The human-derived safety
-systems held more often but on few tracks (loss-of-function carriers 6 of 7, donor cells 3 of 4,
-biochemical assays 5 of 5). The nine false alarms (adrenal hypertrophy, monkey skin necrosis, neural-tube
-defects, gastric lesions, mouse bone loss, an LDL rise, alveolar proteinosis, nasal erosions, hepatocyte IL-31)
-are the other cost: harms that shaped or stopped programmes and never appeared.
+Repeat-dose toxicology in standard species held in 62 of 118 tracks (86 tiles); its 56 misses were 37
+silences, 6 explicit clean bills and 13 false alarms, and the silences fell on immune-mediated harms (10),
+cardiovascular (9) and liver (6) first. Cardiovascular safety pharmacology held in 9 of 17. The human-derived safety
+systems held more often but on few tracks (loss-of-function carriers 11 of 13, donor cells 8 of 11,
+biochemical assays 7 of 8). The 22 false alarms (adrenal hypertrophy, monkey skin necrosis, neural-tube
+defects twice, gastric lesions, mouse bone loss, rat bone accretion, an LDL rise, alveolar proteinosis three
+times, nasal erosions, hepatocyte IL-31, woodchuck thrombocytopenia, animal kidney toxicity twice, mouse brain and
+skin pathology, a beta-2 heart-rate rise, heart and pancreas harm, rat joint destruction, dog retinal harm,
+bleeding) are the other cost: harms that shaped or stopped programmes and never appeared.
 
 ## 3. Families (supplementary figure and `family_rates*.csv`)
 
-The 744 systems fall into 29 families (keyword rules in `families.py`, 70 hand overrides in `overrides.csv`).
+The 1,050 systems fall into 29 families (keyword rules in `families.py`, 93 hand overrides in `overrides.csv`).
 The family forests are supplementary because a family's rate follows the classes it served: in never-approved
-classes every large family's yes collapsed (induced inflammatory models 6 of 32, cell-line xenografts 7 of 19,
-patient-derived cells 1 of 7), in approved classes most held. Read as "which yes to discount", not as a
-ranking, the table says: allergen challenge in people 0 of 8 (seven tiles, none approved), rodent behaviour
-and cognition 1 of 12, transgenic disease models 1 of 7, induced inflammatory and joint models 11 of 38;
-patient-derived xenografts (7 of 15) and patient cells or organoids (9 of 15) did no better than cell-line
-xenografts (21 of 38) and cell lines (17 of 25), inside approved classes too (PDX 6 of 13 against 14 of 19).
+classes every large family's yes collapsed (induced inflammatory models 9 of 57, cell-line xenografts 4 of 21,
+patient-derived cells 3 of 12), in approved classes most held. Read as "which yes to discount", not as a
+ranking, the table says: transgenic disease models 1 of 23, rodent behaviour and cognition 0 of 15, allergen
+challenge in people 1 of 10 (six tiles, none approved), induced inflammatory and joint models 12 of 62;
+patient-derived xenografts (7 of 21) did no better than cell-line xenografts (20 of 45), inside approved classes
+too (PDX 6 of 17 against 16 of 24), and patient cells or organoids (16 of 26) only matched cell lines (17 of 29).
 Intervals are cluster bootstraps over tiles; families under four tiles are listed, not ranked.
 
 ## What this adds to the paper
@@ -91,11 +101,12 @@ models that would have stopped a failure.
 
 ## Robustness (details in `robustness.md`)
 
-- **Adjudication.** On the drafters' statuses instead of the adjudicated ones: engagement held in 103 tiles
-  (105), efficacy contradicted among them in 25 (24); 78 compared safety contradictions (76), 71 in common.
+- **Adjudication.** On the drafters' statuses instead of the adjudicated ones: engagement held in 96 tiles
+  (78), efficacy contradicted among them in 20 (20); 111 compared safety contradictions by system and tile (113),
+  110 in common.
 - **Tier definition.** Headline track's tier or best matched tier on the tile: the same picture, neither significant.
 - **Duplicate packages.** Counted once per (system, harm) in the figure; track counts stated beside them.
-- **Second coder.** Blind retyping of the 76 safety contras: kappa 0.87 on type, 0.93 on primary harm; the six
+- **Second coder.** Blind retyping of the 113 safety contras: kappa 0.92 on type, 0.94 on primary harm; the six
   disagreements and their resolution in `robustness.md`; the first coding is frozen as `safety_types_coder1.csv`.
 - **Units.** Tiles are independent in panel a (Wilson); tracks nest in tiles in the family rates (cluster
   bootstrap).

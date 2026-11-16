@@ -11,16 +11,23 @@
    "source_resolves": true,
    "quote_found": "abstract_only",
    "status_supported": true,
-   "note": "Zarrinkar 2009 (PMID 19654408) resolves; quote verbatim in abstract. Opening untested at model's first use is correct."
+   "note": "ASH 2007 abstract (Blood 110(11):1597, 2007-11-16) confirmed: MV4;11 xenograft regression at 3 mg/kg; 2007 right. retrodiction should be true (lestaurtinib FLT3 inhibition, Smith 2004); model_first_use_year 2009 disagrees with 2007 opener.",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "engagement",
    "index": 2,
-   "verdict": "confirmed",
+   "verdict": "corrected",
    "source_resolves": true,
    "quote_found": "abstract_only",
-   "status_supported": true,
-   "note": "Cortes 2013 JCO (PMID 24002496) quote verbatim; PIA is a direct readout. NCT00462761 results first posted 2020-04-24, matches registry_date."
+   "status_supported": false,
+   "proposed_status": "retro",
+   "proposed_year": 2008,
+   "rule": "DRAFTER_BRIEF 'What the model is': for engagement and efficacy a model result first public after a patient result for the same target and action, member or not, is a retrodiction; post-dating alone makes it one; reproduced = retro",
+   "note": "Year 2008 confirmed: ASH 2008 abstract 767 (2008-11-16) reports pFLT3 strongly suppressed by patient plasma at 12 mg. Moving the model to 2007 still post-dates lestaurtinib patient FLT3 inhibition (Smith 2004): retro, not same.",
+   "checked_by": "CHECKER_BRIEF / dates",
+   "adjudicated_status": "retro",
+   "adjudication_note": "'What the model is': engagement is a target claim, any drug counts. Lestaurtinib patient FLT3 inhibition by plasma inhibitory assay (Smith 2004, PMID 14726387, 2004-01) predates the 2007 model; post-dating alone makes it retro."
   },
   {
    "cell": "dose",
@@ -29,46 +36,58 @@
    "source_resolves": true,
    "quote_found": "abstract_only",
    "status_supported": true,
-   "note": "Same Zarrinkar 2009 abstract; untested opening is correct."
+   "note": "2007 opener confirmed (Blood 110(11):1597). But that abstract already gives phase 1 AML plasma at 12 mg ~2x MV4;11 IC50, so 'no patient exposure yet' is wrong; see dose 2. Not a retrodiction: simultaneous, not earlier.",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "dose",
    "index": 2,
-   "verdict": "confirmed",
-   "source_resolves": true,
-   "quote_found": "abstract_only",
-   "status_supported": true,
-   "note": "Abstract gives MTD 200 mg/day, DLT grade 3 QT, complete PIA inhibition. 'Reached, drug worked' gives same; margin_stated false is correct since no model source stated a margin."
-  },
-  {
-   "cell": "efficacy",
-   "index": 1,
-   "verdict": "confirmed",
-   "source_resolves": true,
-   "quote_found": "abstract_only",
-   "status_supported": true,
-   "note": "Zarrinkar 2009 quote verbatim; untested opening correct."
-  },
-  {
-   "cell": "efficacy",
-   "index": 2,
-   "verdict": "confirmed",
-   "source_resolves": true,
-   "quote_found": "abstract_only",
-   "status_supported": true,
-   "note": "QuANTUM-R (PMID 31175001): OS primary, quote verbatim; NCT02039726 results posted 2020-01-27. ADMIRAL patient_trials quote verbatim (NEJM). Earlier 2018 'same' exists; see missing."
-  },
-  {
-   "cell": "efficacy",
-   "index": 3,
    "verdict": "corrected",
    "source_resolves": true,
    "quote_found": "abstract_only",
    "status_supported": true,
-   "proposed_status": "contra",
-   "proposed_year": 2020,
-   "rule": "Evidence rule 6 (dating: earliest public date) with tier 5 rule 2",
-   "note": "Wang 2022 quote verbatim; Ueno 2019 abstract does predict combo>either alone in xenografts and names unfit patients. Contra holds, but Astellas announced OS futility 2020-12-21 (tier 5); year should be 2020."
+   "proposed_status": "same",
+   "proposed_year": 2007,
+   "rule": "DRAFTER_BRIEF evidence rule 6: year is the earliest date the comparison was public",
+   "note": "ASH 2008 abstract 767 confirmed, but ASH 2007 abstract 1597 (2007-11-16) already states phase 1 AML steady-state plasma at 12 mg is ~twofold above MV4;11 IC50: target exposure reached, stated side by side. Same, 2007.",
+   "checked_by": "CHECKER_BRIEF / dates",
+   "adjudicated_status": "same",
+   "adjudication_note": "Rule 6 and dose table: ASH 2007 abstract 1597 (Blood 110:1597) states 12 mg steady-state plasma ~twofold above MV4;11 IC50, target reached side by side. Same; year 2007 as checker proposes."
+  },
+  {
+   "cell": "efficacy",
+   "index": 1,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "note": "ASH 2007 abstract 1597 (2007-11-16) confirmed as quizartinib's first MV4;11 xenograft use; 2007 right, untested right. retrodiction should be true (lestaurtinib responses, Smith 2004); model_first_use_year 2009 inconsistent.",
+   "checked_by": "CHECKER_BRIEF / dates"
+  },
+  {
+   "cell": "efficacy",
+   "index": 2,
+   "verdict": "corrected",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": false,
+   "proposed_status": "retro",
+   "proposed_year": 2011,
+   "rule": "DRAFTER_BRIEF 'What the model is': for engagement and efficacy a model result first public after a patient result for the same target and action, member or not, is a retrodiction; post-dating alone makes it one; reproduced = retro",
+   "note": "2011 confirmed: phase 2 interim CRc presented at EHA June 2011 (abstract number and 43% not seen; secondary source gives 45% of 62). 2007 model still post-dates lestaurtinib responses (Smith 2004): retro.",
+   "checked_by": "CHECKER_BRIEF / dates",
+   "adjudicated_status": "retro",
+   "adjudication_note": "'What the model is': efficacy is a target claim; post-dating alone makes a retrodiction. Lestaurtinib clinical responses with FLT3 inhibition (Smith 2004) predate the 2007 model; it reproduced direction: retro, partial."
+  },
+  {
+   "cell": "efficacy",
+   "index": 3,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "checked_by": "CHECKER_BRIEF / fields",
+   "note": "Wang 2022 (PMID 35917453) OS/futility quote verbatim, primary endpoint OS, gilteritinib 120 mg/d orally + azacitidine; Astellas release dated December 21, 2020 confirmed, so 2020. Ueno 2019 (PMID 31069015) is a retrodiction that failed to reproduce: contra stands."
   },
   {
    "cell": "safety",
@@ -77,7 +96,8 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "note": "Quote found verbatim in bundled Xospata multidisciplinary review; dog telemetry to 100 mg/kg showed no ECG effect, hERG IC50 16 uM. 2013 proxy year stated."
+   "checked_by": "CHECKER_BRIEF / fields",
+   "note": "Quote verbatim in bundled NDA 211349 multidisciplinary review; gilteritinib oral, FLT3-mutated biomarker_selected right; 2013 proxy opener."
   },
   {
    "cell": "safety",
@@ -86,27 +106,68 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "note": "Label PRES quote verbatim (5.1); review gives QTcF >500 ms in 1.7% at 120 mg, QT-related deaths, PRES AESI 3%. Clean dog ECG and rat CNS screen make silence a scoreable miss."
+   "checked_by": "CHECKER_BRIEF / fields",
+   "note": "PRES quote verbatim in bundled 2018 Xospata label; AML patients' own data, not imported; gilteritinib oral, biomarker_selected right; contra holds."
   },
   {
    "cell": "efficacy",
    "index": 4,
    "verdict": "confirmed",
    "source_resolves": true,
-   "quote_found": "verbatim",
+   "quote_found": "abstract_only",
    "status_supported": true,
-   "checked_by": "CHECKER_BRIEF_v3 / models",
-   "note": "Smith 2012 Nature (PMID 22504184, PMC3390926, epub 2012-04-15) full text read; quote verbatim in abstract. Opening untested at the screen's first use, 2012, patient level, is correct; ex_vivo is the enum's nearest value for an engineered cell line."
+   "note": "AACR 2011 abstract 4737 (Cancer Res 71(8 Suppl)) confirmed: saturation mutagenesis, Ba/F3, AC220 resistance at F691/D835/Y842; 2011 right, untested opener right. retrodiction should be true (earlier FLT3-inhibitor patient results).",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "efficacy",
    "index": 5,
+   "verdict": "corrected",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": false,
+   "proposed_status": "retro",
+   "proposed_year": 2012,
+   "rule": "DRAFTER_BRIEF 'What the model is': for engagement and efficacy a model result first public after a patient result for the same target and action, member or not, is a retrodiction; post-dating alone makes it one; reproduced = retro",
+   "checked_by": "CHECKER_BRIEF / fields",
+   "note": "Smith 2012 '8 of 8' quote verbatim; quizartinib oral right. Screen post-dates FLT3 patient results (Smith 2004; Man 2012 sorafenib D835 at relapse, epub 2012-02-24, before Smith epub 2012-04): retro.",
+   "adjudicated_status": "retro",
+   "adjudication_note": "'What the model is': target claim, any drug counts. Sorafenib D835 relapse in patients (Man 2012, epub 2012-02-24) preceded Smith 2012 (epub 2012-04-15); post-dating alone makes it a retrodiction. Reproduced: retro."
+  },
+  {
+   "cell": "efficacy",
+   "index": 6,
    "verdict": "confirmed",
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "checked_by": "CHECKER_BRIEF_v3 / models",
-   "note": "Full text: screen found D835/F691/Y842 first; relapse genotypes were then sequenced ('attention was focused on the codons identified in the in vitro screen'). Relapse genotypes were unknown before, so same, not retro. D835F not predicted, Y842 absent: direction_only right."
+   "checked_by": "CHECKER_BRIEF / fields",
+   "note": "Bundled NDA 211349 review: '0/18' TKD quote verbatim; gilteritinib oral, FLT3-TKD biomarker_selected right; regulator calls it inconclusive, so untested/unsettled holds."
+  },
+  {
+   "cell": "efficacy",
+   "index": 7,
+   "verdict": "confirmed",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": true,
+   "checked_by": "CHECKER_BRIEF / fields",
+   "note": "Smith 2014 PNAS (PMID 24623852, epub 2014-03-12) quote verbatim; crenolanib is a tile member (class_members: akn-028, crenolanib, gilteritinib, quizartinib), oral; opener untested right. retrodiction should be true (post-dates FLT3 patient results)."
+  },
+  {
+   "cell": "efficacy",
+   "index": 8,
+   "verdict": "corrected",
+   "source_resolves": true,
+   "quote_found": "abstract_only",
+   "status_supported": false,
+   "proposed_status": "retro",
+   "proposed_year": 2015,
+   "rule": "DRAFTER_BRIEF 'What the model is': for engagement and efficacy a model result first public after a patient result for the same target and action, member or not, is a retrodiction; post-dating alone makes it one; reproduced = retro",
+   "note": "2015 confirmed: ASH 2015 abstract 2468 (Blood 126(23)) reports 38/44 crenolanib relapses without secondary FLT3 mutations. Smith 2014 post-dates quizartinib relapse genotypes (Smith 2012): retro, source_calls_it partial.",
+   "checked_by": "CHECKER_BRIEF / dates",
+   "adjudicated_status": "retro",
+   "adjudication_note": "'What the model is': target claim, any drug counts. Quizartinib relapse FLT3 mutations in patients (Smith 2012) preceded the 2014 crenolanib screen; post-dating alone makes it retro, consistent with entry 5. Reproduced: retro, partial."
   }
  ],
  "missing": [
@@ -115,7 +176,8 @@
   "MORPHO (gilteritinib post-HCT maintenance, NCT02997202): missed primary RFS (HR 0.68, p=0.0518); Astellas topline release 2023-03-09; Levis JCO 2024 doi:10.1200/JCO.23.02474. Post-transplant maintenance was not modelled, so it is a patient_trials/untested note with no status change, but it is a Phase 3 failure the draft does not show.",
   "QuANTUM-R regulatory reading: FDA ODAC (May 2019) and a complete response letter (June 2019) questioned the robustness of the OS result; quizartinib was not approved in the US until 2023. The 2019 entry does not record this tier-2 view.",
   "Crenolanib (a class member) is absent: phase 3 NCT03250338 in relapsed/refractory FLT3-mutated AML was reportedly presented at ASH 2025 (benefit reported in NPM1/FLT3 co-mutated patients), and ARO-021 (NCT03258931) vs midostaurin is completed. Not verified here; the drafter should check primary-endpoint results. AKN-028 is also not mentioned.",
-  "Gilteritinib in-vitro activity against FLT3-TKD (Ba/F3 D835Y), the basis for enrolling and labelling FLT3-TKD patients, has no patient-level track. The FDA Xospata multidisciplinary review (NDA 211349, 2018, in bundle) reports CR/CRh 0/18 in TKD vs 35/161 in ITD in the pooled interim analysis and issued PMR-3 (>=30 TKD patients) and PMC-1 (in-vitro sensitivity of other non-ITD mutations). Candidate 2018 patient-level untested/contra entry; ADMIRAL's later TKD subgroup should be checked before scoring."
+  "Gilteritinib in-vitro activity against FLT3-TKD (Ba/F3 D835Y), the basis for enrolling and labelling FLT3-TKD patients, has no patient-level track. The FDA Xospata multidisciplinary review (NDA 211349, 2018, in bundle) reports CR/CRh 0/18 in TKD vs 35/161 in ITD in the pooled interim analysis and issued PMR-3 (>=30 TKD patients) and PMC-1 (in-vitro sensitivity of other non-ITD mutations). Candidate 2018 patient-level untested/contra entry; ADMIRAL's later TKD subgroup should be checked before scoring.",
+  "Efficacy, track flt3-tkd-d835y-ba-f3-gilteritinib: ADMIRAL final analysis (Perl 2019 NEJM, doi:10.1056/NEJMoa1902688) reports the FLT3-TKD subgroup (CR/CRh and OS forest plot) and the PMR-3 >=30-TKD-patient report; check whether either settles the 2018 untested/unsettled entry (not verified here)."
  ],
  "overall": "accept_with_corrections",
  "rule_questions": [
@@ -124,6 +186,8 @@
   "Dose table: in LACEWING, gilteritinib exposure was at target (troughs equal to monotherapy) and the regimen failed and was abandoned. Should dose get 'contra, derived_from: efficacy' even though the monotherapy dose worked?",
   "Safety: quizartinib entered humans around 2007 on a rat and monkey package whose QT prediction matched (public in 2023). Is a different tox species package the same model_id ('rat-dog-glp-tox'), or a model_change that could lift the gilteritinib contra?",
   "Can a single-arm trial's response-rate primary endpoint (quizartinib phase 2, 2018) score efficacy 'same', or only a randomised primary endpoint?",
-  "A patient-level resistance-genotype prediction (which kinase-domain mutations emerge at relapse) is filed under efficacy with endpoint_role 'primary', but relapse genotype is not any trial's primary endpoint. Does decision 4's primary-endpoint rule apply to prediction_level 'patient' tracks, or do they need their own endpoint_role value?"
+  "A patient-level resistance-genotype prediction (which kinase-domain mutations emerge at relapse) is filed under efficacy with endpoint_role 'primary', but relapse genotype is not any trial's primary endpoint. Does decision 4's primary-endpoint rule apply to prediction_level 'patient' tracks, or do they need their own endpoint_role value?",
+  "Retrodiction for patient-level resistance tracks: does an earlier patient result for a different drug of the target (sorafenib D835 relapse, Man 2012) make a drug-specific resistance screen a retrodiction, and does a screen predicting a drug escapes the known resistance (crenolanib, Smith 2014) count as retrodicting it?",
+  "Does a pre-member patient signal limited to transient blast reduction (lestaurtinib, midostaurin before 2009) make a later member's xenograft efficacy result a retrodiction, as the post-dating rule reads literally?"
  ]
 }

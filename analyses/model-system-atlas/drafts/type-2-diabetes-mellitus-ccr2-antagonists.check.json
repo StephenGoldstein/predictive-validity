@@ -11,7 +11,9 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "note": "DOI -> PMID 16341265, epub 2005-12-08, print 2006; quote verbatim in abstract. Untested holds. Nit: Weisberg used DIO mice only; db/db enters this track via ChemoCentryx 2011/2013 work."
+   "rule": "DRAFTER_BRIEF rule 6 (track opens at its own drug's first use in the model)",
+   "note": "CT.gov API re-read: NCT01230749 (JNJ-41443532, T2D) submitted 2010-10-22, posted 2010-10-29. PubMed has no JNJ-41443532 mouse report (earliest drug record 2012); registry proxy holds. Year 2010; untested unchanged; not retrodiction.",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "engagement",
@@ -20,7 +22,8 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "note": "NCT01230749 results first posted 2013-12-11; IL-6/IL-18/CRP GMR 0.90-1.01 vs placebo confirmed. Untested holds (adipose-macrophage readout never measured). Fix note: the CCX140-B CSR synopsis (EU CTR 2009-016051-22) shows plasma MCP-1 and monocytes WERE measured, unchanged."
+   "note": "CT.gov NCT01230749 API: IL-6 outcome title verbatim, results first posted 2013-12-11; JNJ-41443532 oral tablets bid, unselected T2D. Mouse adipose-macrophage readout not measured: untested/not_measured holds; strengthens true fair.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "dose",
@@ -29,7 +32,9 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "note": "Same Weisberg abstract; no exposure target stated. Untested holds."
+   "rule": "DRAFTER_BRIEF rule 6 (track opens at its own drug's first use in the model)",
+   "note": "PRNewswire/BioSpace release 2010-09-21 re-read: CCX140 improved fasting glucose, HOMA-IR in obese diabetic mice over 28 days. No earlier CCX140 model record (PubMed first 2012). Year 2010; untested/no_prediction holds.",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "dose",
@@ -38,7 +43,8 @@
    "source_resolves": true,
    "quote_found": "near",
    "status_supported": true,
-   "note": "PMID 23986513, epub 2013-08-28, received 2013-06-04. Quote is the first clause of a longer sentence ('...which approximates the compound's IC50 value' in 100% serum). 100 mg/kg confirmed. Human PK sits in an unposted CSR appendix; no public exposure number, so untested stands even with efficacy corrected."
+   "note": "PMC4073927 full text: quote is first clause of a longer sentence ('...170 nM, which approximates the IC50'); received 2013-06-04, epub 2013-08-28. No human exposure target stated; ilacirnon, oral, unselected correct. Untested holds.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "efficacy",
@@ -47,7 +53,9 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "note": "Weisberg abstract quote verbatim; untested at 2005 holds."
+   "rule": "DRAFTER_BRIEF rule 6 (track opens at its own drug's first use in the model)",
+   "note": "Release 2010-09-21 re-read: earliest public ilacirnon model use (EASD poster). NCT01028963 posted 2009-12-09 is a trial, not model use, no result. PubMed first 2012. Year 2010; untested holds; not retrodiction.",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "efficacy",
@@ -56,40 +64,33 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": false,
-   "proposed_status": "contra",
+   "proposed_status": "untested",
    "proposed_year": 2011,
-   "rule": "efficacy poc_gate rule; evidence rule 2 (higher-tier record of the same trial sets the status); decision 13",
-   "note": "Press-release quote verbatim, but a tier-3 record exists: EU CTR 2009-016051-22 results (posted 2022-03-01, CSR CL004_140 synopsis dated 17 Mar 2011). Pre-specified gate was FPG vs placebo ('main efficacy hypothesis'), NOT met: LSM FPG change -10.7/-21.4/-4.3/-16.1 mg/dL placebo/pio/5 mg/10 mg, 'not statistically different'. HOMA-IR, insulin, OGTT AUC, adiponectin, hsCRP unchanged. HbA1c p=0.045 at 10 mg only is a lower-ranked secondary. Replace src with the EU CTR record (tier 3, trial_unreported false, registry_date 2022-03-01); endpoint_role poc_gate on FPG.",
+   "rule": "Evidence rule 2 (higher-tier record of the same trial sets status) on the FPG poc_gate; rule 5 'unsettled'",
+   "note": "Release (15 Sep 2011) quote verbatim. CSR synopsis (EU CTR, posted 2022-03-01) confirms metformin background in all arms, oral capsules: combination_with null, ilacirnon, oral, unselected correct. But CSR: FPG gate not different vs placebo for CCX140-B and pioglitazone; draft still carries status same with untested_reason unsettled.",
+   "checked_by": "CHECKER_BRIEF / fields",
    "adjudicated_status": "untested",
-   "adjudication_note": "Rule 2: tier-3 CSR CL004_140 sets status. FPG gate (decision 4/#144) missed, HbA1c secondary hit, CSR conclusion only 'encouraging': #32 untested. CSR attributes placebo's fall to baseline imbalance (#35); pioglitazone also did not separate."
+   "adjudication_note": "Evidence rule 2: tier-3 CSR sets status over the press release. Pre-specified FPG Day-29 hypothesis missed, pioglitazone also not different, placebo baseline imbalanced: inconclusive, so untested, untested_reason unsettled (rule 5)."
   },
   {
    "cell": "efficacy",
    "index": 3,
-   "verdict": "corrected",
+   "verdict": "confirmed",
    "source_resolves": true,
    "quote_found": "verbatim",
-   "status_supported": false,
-   "proposed_status": "contra",
-   "proposed_year": 2013,
-   "rule": "contra status rule: one drug's contra beats another drug's same on the same track; a track turns back only with patient_signal_reversed from a tier 1-4 source",
-   "note": "PMID 24798870, epub 2014-05-25; abstract quote verbatim; registry numbers (24-h WAG -20.47 p=0.038 at 250 mg, -13.24 p=0.178 at 1000 mg; HOMA-IR -0.26 p=0.769) confirmed. Entry-level reading same/partial is fair, but the track is contra from the 2011 CCX140-B gate failure and nothing shows that signal attenuated, so the 2013 entry carries contra.",
-   "adjudicated_status": "same",
-   "adjudication_note": "Decision 11: primary 24-h WMG met at 250 mg (p=0.038), HOMA-IR miss recorded as partial. Decision 6 override does not apply: efficacy 2 adjudicates untested, so no contra sits on the dio-dbdb track."
+   "status_supported": true,
+   "note": "PMID 24798870 abstract quote verbatim (epub 2014-05-25; CT.gov results 2013-12-11, year 2013 right). Primary 23-h WMG significant at 250 mg bid oral; HOMA-IR not. jnj-41443532, oral, unselected; same/partial holds; strengthens true fair.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "efficacy",
    "index": 4,
-   "verdict": "corrected",
+   "verdict": "confirmed",
    "source_resolves": true,
    "quote_found": "verbatim",
-   "status_supported": false,
-   "proposed_status": "contra",
-   "proposed_year": 2013,
-   "rule": "decision 10 (a retrodiction that fails to reproduce the human data is contra); decision 13 (judge on the data, not the sponsor's reading)",
-   "note": "Retrodiction call confirmed (received 2013-06-04, cites Hanefeld 2012 as ref 16). But the mouse's headline (fasting insulin down, HOMA-IR normalised) is contradicted by the tier-3 CSR: fasting insulin, HOMA-IR and OGTT AUC unchanged in patients, FPG ns vs placebo; the sponsor itself writes insulin sensitivity 'may not be the major driver'. Direction matched on glucose only. If the rules admit retro + partial, that is the fallback; see rule questions.",
-   "adjudicated_status": "retro",
-   "adjudication_note": "RULE QUESTION: does retro admit partial agreement? Mouse reproduces the cited HbA1c/FPG direction but the CSR shows insulin, HOMA-IR unchanged; decision 10 is binary (reproduces/cannot) and decision 11's partial rule is written for same."
+   "status_supported": true,
+   "note": "PMID 23986513 abstract quote verbatim; received June 2013, after the Sept 2011 clinical result: retrodiction. ilacirnon, oral, unselected correct. Retro with source_calls_it partial per the settled ruling holds.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "safety",
@@ -98,7 +99,9 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "note": "Weisberg abstract; no harm predicted. Untested holds."
+   "rule": "DRAFTER_BRIEF rule 6 (track opens at its own drug's first use in the model)",
+   "note": "Release 2010-09-21 re-read: ilacirnon's first public obese-diabetic-mouse use; no earlier CCX140 model report (PubMed first 2012). Weisberg names no harm. Year 2010; untested/no_prediction holds.",
+   "checked_by": "CHECKER_BRIEF / dates"
   },
   {
    "cell": "safety",
@@ -107,7 +110,8 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "note": "Press-release quote verbatim (15 Sep 2011); model-side quote verbatim in Sullivan 2013 abstract; retro holds (model public after the clinic). Upgrade src: the EU CTR CSR synopsis (tier 3) states 'There were no detrimental effects of CCX140-B treatment on plasma MCP-1 or circulating monocyte levels'; set trial_unreported false."
+   "note": "Release quote verbatim (15 Sep 2011); Sullivan 2013 abstract states no CCL2/monocyte effect (model_src verbatim). CCX140-B's own 2011 patient result precedes the 2013 model: retro right under the dose/safety rule. ilacirnon, oral, unselected correct.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "efficacy",
@@ -116,9 +120,8 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "rule": "decision 7 (#112: a model introduced mid-cell opens at its first class use, proxy allowed); decision 8 (human genetic models in scope, prediction_level patient)",
-   "note": "Synopsis PDF re-downloaded, sha256 identical; quote verbatim across a line break; posted 01 Mar 2022. Stratified at randomisation (initiated 29 Jan 2010): prospective, patient-level, opener per decision 7. Synopsis never names the variant; 'promoter'/-2518 is inference, say so in model.",
-   "checked_by": "CHECKER_BRIEF_v3 / models"
+   "note": "CSR synopsis re-downloaded from EU CTR (posted 2022-03-01); stratification quote verbatim; trial initiation 29 Jan 2010. Oral capsules on metformin: ilacirnon, oral, unselected correct. Untested opener holds.",
+   "checked_by": "CHECKER_BRIEF / fields"
   },
   {
    "cell": "efficacy",
@@ -127,9 +130,8 @@
    "source_resolves": true,
    "quote_found": "verbatim",
    "status_supported": true,
-   "rule": "decision 7 (a new entry is written only on a status change on its track; trial facts that change nothing go in patient_trials)",
-   "note": "Quote verbatim. No genotype result anywhere reachable: synopsis, CT.gov NCT01028963 (no results, no stratification), Hanefeld 2012 abstract (Semantic Scholar; full text 522 at OMICS). Untested holds; but same source and status as entry 5, so decision 7 would fold it into patient_trials.",
-   "checked_by": "CHECKER_BRIEF_v3 / models"
+   "note": "Objective quote verbatim in CSR synopsis; no genotype-by-response result reported. ilacirnon, oral, unselected; year 2022 = EU CTR posting. Untested holds; strengthens true fair.",
+   "checked_by": "CHECKER_BRIEF / fields"
   }
  ],
  "missing": [
@@ -150,6 +152,7 @@
   "Year of a corrected entry when the status-setting higher-tier record (EU CTR posting 2022-03-01) post-dates the first public tier-5 comparison (press release 2011): does the entry carry 2011 (earliest public, rule 6) or 2022 (when the status-setting data were public)?",
   "Retrodiction by publication date vs model-run date: the DIO/db/db mouse data were presented at the same EASD session (Sept 2011) as the clinical result, and the hCCR2 knock-in paper was received June 2013. Is a model presented simultaneously with the clinic a retrodiction? And should the `retrodiction` flag be a property of the model/track rather than per entry (the draft sets it false on dose, true on efficacy and safety for the same paper)?",
   "Engagement when model and patients both show ABSENCE of the class's canonical engagement marker (no CCL2 rise, no monocyte fall, measured in the CCX140-B trial): is that scoreable as engagement at all, or only as the safety/selectivity match the draft used?",
-  "Decision 7 on an all-untested track: may the opener (model_first_use_year, proxy source) and a later entry dated to that proxy source's posting both stand, or is the second a no-status-change entry that belongs in patient_trials? (efficacy 5/6 here; engagement 2 is the same pattern and was confirmed.) [CHECKER_BRIEF_v3 / models]"
+  "Decision 7 on an all-untested track: may the opener (model_first_use_year, proxy source) and a later entry dated to that proxy source's posting both stand, or is the second a no-status-change entry that belongs in patient_trials? (efficacy 5/6 here; engagement 2 is the same pattern and was confirmed.) [CHECKER_BRIEF_v3 / models]",
+  "Efficacy 4 retro vs efficacy 2 untested: the knock-in mouse is credited with reproducing the CCX140-B glucose result, yet the tier-3 CSR shows the FPG gate missed (adjudicated untested on efficacy 2). Can a retrodiction reproduce a patient result that was itself inadmissible on its gate, and may it lean on another drug's (JNJ-41443532) result? [CHECKER_BRIEF / fields]"
  ]
 }
