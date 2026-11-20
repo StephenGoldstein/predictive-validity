@@ -13,11 +13,13 @@ steps 2 to 5). Commands, registered on pipeline.target_disease:
     gate     score the pilot against the reader's sheet: agreement and coverage gates
     summary  counts of labels, grades, check outcomes and coverage
 
-Every source must be dated before the cutoff year. Every model pass goes through pipeline.llm.
+Every source must be dated before the cutoff year. Every model pass goes through pipeline.llm. Run order for a pair
+set: search, label, check, blind, gate; `label` rewrites its rows as not_checked, so `check` always follows it.
 """
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable
 
 import pandas as pd
@@ -35,7 +37,7 @@ ORIGINS = ["human_genetics", "tumour_genetics", "diseased_tissue", "mouse_geneti
 GRADES = ["stated", "pattern", "none"]
 ROUTES = ["phenotypic_screen", "target_screen", "de_novo_design", "derived_from_active", "repurposed_drug", "unclear"]
 
-MAX_GENE_NAMES = 12
+MAX_GENE_NAMES = 16
 MAX_DISEASE_NAMES = 20
 BUNDLE_EARLIEST = 25  # records shown to the model and the reader: the earliest by (year, id) ...
 BUNDLE_LATEST = 15  # ... and the latest before the cutoff
@@ -45,9 +47,21 @@ PILOT_CSV = os.path.join(frame.REPO, "report", "audits", "target_origin_pilot.cs
 PAIR_SETS = ["pilot", "set_a", "set_b", "window", "all"]
 
 SEARCH_METHOD = "target_origin_search@v1"
+ORIGIN_SERVICES = ("pubmed", "europepmc")  # the origin search's services; firecrawl rows belong to #154
+DELETE_SOURCES = ("DELETE FROM preclin.target_disease_source WHERE (ensembl_id, mondo_id) = (%s, %s) "
+                  "AND service IN %s")
+DELETE_SEARCH = ("DELETE FROM preclin.target_disease_search WHERE (ensembl_id, mondo_id) = (%s, %s) "
+                 "AND service IN %s")
+SEARCHED_SQL = "SELECT DISTINCT ensembl_id, mondo_id FROM preclin.target_disease_search WHERE service IN %s"
+SOURCES_SQL = """SELECT ensembl_id, mondo_id, record_id, service, title, abstract, year, rank
+                 FROM preclin.target_disease_source WHERE (ensembl_id, mondo_id) IN %s AND service IN %s
+                 ORDER BY rank"""
+COVERED_SQL = ("SELECT ensembl_id, mondo_id, count(*) AS records FROM preclin.target_disease_source "
+               "WHERE (ensembl_id, mondo_id) IN %s AND service IN %s GROUP BY 1, 2")
 SEARCH_DESCRIPTION = f"""For each target-disease pair (preclin.target_disease): PubMed (esearch, efetch) and Europe PMC
 (records outside MEDLINE with an abstract) for titles or abstracts naming the gene (HGNC symbol first, then its name,
-the target name and aliases passing pipeline.literature.usable, at most {MAX_GENE_NAMES}) and the disease (MONDO label
+the target name, the UniProt and HGNC protein names, and aliases passing pipeline.literature.usable, at most
+{MAX_GENE_NAMES}) and the disease (MONDO label
 and its synonyms, shortest first, at most {MAX_DISEASE_NAMES}), dated 1900 to the year before the pair's first entry. Reviews are kept. A record without a year, or dated in or after the cutoff year, is
 dropped. Every remaining record is stored with its rank by (year, record_id)."""
 
@@ -85,14 +99,59 @@ def name_usable(name: str) -> bool:
     return 4 <= len(name) <= 60 and len(name.split()) <= 6 and not any(c in name for c in "()[]{},;^")
 
 
-def gene_names(symbol: str, hgnc: pd.DataFrame, target_name: str | None) -> list[str]:
-    """The symbol first, always; then the HGNC name and the target name that pass name_usable, and previous and alias
-    symbols that pass pipeline.literature.usable; at most MAX_GENE_NAMES."""
-    names = [n for n in [*(hgnc.name if not hgnc.empty else []), target_name] if n and name_usable(n)]
+UNIPROT_URL = "https://rest.uniprot.org/uniprotkb/{acc}.json?fields=protein_name"
+HGNC_URL = "https://rest.genenames.org/fetch/symbol/{symbol}"
+_protein_names: dict[str, list[str]] = {}
+
+
+def uniprot_names(doc: dict) -> list[str]:
+    """Protein names in a UniProtKB entry: the recommended full and short names, then each alternative name's."""
+    desc = doc.get("proteinDescription", {})
+    out = []
+    for block in [desc.get("recommendedName", {}), *desc.get("alternativeNames", [])]:
+        if block.get("fullName", {}).get("value"):
+            out.append(block["fullName"]["value"])
+        out += [x["value"] for x in block.get("shortNames", []) if x.get("value")]
+    return out
+
+
+def hgnc_names(doc: dict) -> list[str]:
+    """Alias and previous names of an HGNC record (its alias_name and prev_name fields)."""
+    return list(doc.get("alias_name", []) or []) + list(doc.get("prev_name", []) or [])
+
+
+def protein_names(symbol: str, uniprot_ids: list[str]) -> list[str]:
+    """Protein names from UniProt (first accession) and HGNC's REST service, cached per process; empty when a service
+    fails, which is logged."""
+    if symbol in _protein_names:
+        return _protein_names[symbol]
+    names: list[str] = []
+    try:
+        if uniprot_ids:
+            names += uniprot_names(literature.request("GET", UNIPROT_URL.format(acc=uniprot_ids[0]), log).json())
+        docs = literature.request("GET", HGNC_URL.format(symbol=symbol), log,
+                                  headers={"Accept": "application/json"}).json().get("response", {}).get("docs", [])
+        if docs:
+            names += hgnc_names(docs[0])
+    except (literature.SourceDown, ValueError) as e:
+        log(f"protein names for {symbol}: {e}")
+    _protein_names[symbol] = names
+    return names
+
+
+def gene_names(symbol: str, hgnc: pd.DataFrame, target_name: str | None, protein: list[str] = ()) -> list[str]:
+    """The symbol first, always; then the HGNC name, the target name and the protein names (UniProt, HGNC alias and
+    previous names) that pass name_usable, then previous and alias symbols that pass pipeline.literature.usable; at
+    most MAX_GENE_NAMES."""
+    names = [n for n in [*(hgnc.name if not hgnc.empty else []), target_name, *protein] if n and name_usable(n)]
     aliases: list[str] = []
     for r in hgnc.itertuples():
         aliases += list(r.prev_symbols or []) + list(r.alias_symbols or [])
-    return _dedupe([symbol] + names + [a for a in aliases if a and literature.usable(a)])[:MAX_GENE_NAMES]
+    aliases = [a for a in aliases if a and literature.usable(a)]
+    # a symbol of three characters or fewer (AR, KIT, C5) is an English word or an abbreviation of something else
+    # as often as the gene: it is searched only when no other name exists
+    lead = [symbol] if len(symbol) >= 4 or not (names or aliases) else []
+    return _dedupe(lead + names + aliases)[:MAX_GENE_NAMES]
 
 
 def disease_names(label: str, synonyms: list[str]) -> list[str]:
@@ -194,14 +253,15 @@ def mondo_labels() -> dict[str, str]:
 
 
 def pair_names(ensembl_id: str, symbol: str, mondo_id: str, labels: dict[str, str]) -> tuple[list[str], list[str]]:
-    hgnc = frame.query("SELECT symbol, name, prev_symbols, alias_symbols FROM preclin.hgnc_gene WHERE ensembl_id = %s",
-                       (ensembl_id,))
+    hgnc = frame.query("SELECT symbol, name, prev_symbols, alias_symbols, uniprot_ids FROM preclin.hgnc_gene "
+                       "WHERE ensembl_id = %s", (ensembl_id,))
+    accessions = [a for r in hgnc.itertuples() for a in (r.uniprot_ids or [])]
     tname = frame.query("SELECT min(name) AS name FROM public.targets WHERE ensembl_id = %s", (ensembl_id,))
     target_name = tname.name[0] if len(tname) and isinstance(tname.name[0], str) else None
     term = frame.query("SELECT label, synonyms FROM preclin.ontology_term WHERE term_id = %s", (mondo_id,))
     label = term.label[0] if len(term) else labels.get(mondo_id, mondo_id)
     synonyms = list(term.synonyms[0] or []) if len(term) else []
-    return gene_names(symbol, hgnc, target_name), disease_names(label, synonyms)
+    return gene_names(symbol, hgnc, target_name, protein_names(symbol, accessions)), disease_names(label, synonyms)
 
 
 def search_pair(cur, row, labels: dict[str, str], max_records: int | None) -> tuple[int, int, int]:
@@ -210,6 +270,10 @@ def search_pair(cur, row, labels: dict[str, str], max_records: int | None) -> tu
     genes, diseases = pair_names(row.ensembl_id, row.symbol, row.mondo_id, labels)
     term = pair_term(genes, diseases)
     pm_query, pm_hits, pmids = literature.pubmed_ids(genes, cutoff - 1, term=term)
+    # the same count without the symbol: when far below pm_hits, the symbol (an English word?) floods the search
+    without = [g for g in genes if g != row.symbol]
+    pm_hits_without = (literature.pubmed_count(pair_term(without, diseases)("1900", str(cutoff - 1)))
+                       if without and row.symbol in genes else None)
     pm_rows = pubmed_rows(attribution.efetch(pmids), cutoff) if pmids else []
     ep_query = pair_epmc_query(genes, diseases, cutoff)
     _, ep_hits, records = literature.epmc_records(genes, cutoff - 1, log, query=ep_query)
@@ -219,13 +283,14 @@ def search_pair(cur, row, labels: dict[str, str], max_records: int | None) -> tu
         ep_rows = sorted(ep_rows, key=lambda r: (r["year"], r["record_id"]))[:max_records]
     rows = ranked(pm_rows + ep_rows)
     pair = (row.ensembl_id, row.mondo_id)
-    cur.execute("DELETE FROM preclin.target_disease_source WHERE (ensembl_id, mondo_id) = (%s, %s)", pair)
-    cur.execute("DELETE FROM preclin.target_disease_search WHERE (ensembl_id, mondo_id) = (%s, %s)", pair)
+    cur.execute(DELETE_SOURCES, (*pair, ORIGIN_SERVICES))
+    cur.execute(DELETE_SEARCH, (*pair, ORIGIN_SERVICES))
     execute_values(cur, """INSERT INTO preclin.target_disease_search
-                             (ensembl_id, mondo_id, service, cutoff_year, gene_names, disease_names, query, n_hits)
+                             (ensembl_id, mondo_id, service, cutoff_year, gene_names, disease_names, query, n_hits,
+                              n_hits_without_symbol)
                            VALUES %s""",
-                   [(*pair, "pubmed", cutoff, genes, diseases, pm_query, int(pm_hits)),
-                    (*pair, "europepmc", cutoff, genes, diseases, ep_query, int(ep_hits))])
+                   [(*pair, "pubmed", cutoff, genes, diseases, pm_query, int(pm_hits), pm_hits_without),
+                    (*pair, "europepmc", cutoff, genes, diseases, ep_query, int(ep_hits), None)])
     if rows:
         execute_values(cur, """INSERT INTO preclin.target_disease_source
                                  (ensembl_id, mondo_id, record_id, service, title, abstract, year, doi, rank)
@@ -236,7 +301,7 @@ def search_pair(cur, row, labels: dict[str, str], max_records: int | None) -> tu
 
 
 def searched() -> set[tuple[str, str]]:
-    s = frame.query("SELECT DISTINCT ensembl_id, mondo_id FROM preclin.target_disease_search")
+    s = frame.query(SEARCHED_SQL, (ORIGIN_SERVICES,))
     return set(zip(s.ensembl_id, s.mondo_id))
 
 
@@ -341,7 +406,14 @@ LABEL_SCHEMA = {
 TOOLS = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 8, "blocked_domains": BLOCKED_DOMAINS},
          {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 4, "blocked_domains": BLOCKED_DOMAINS}]
 LABEL_METHOD = "target_origin_label@v1"
-CONTEXT = ("provisional_origin", "provisional_year")  # shown beside the input; a change alone does not relabel
+# shown beside the input; a change in them alone does not relabel. Whether the provisional origin was shown at all
+# (provisional_shown) is part of the input, so a run with --hide-provisional never reuses a label made with it shown.
+CONTEXT = ("provisional_origin", "provisional_year", "first_program")
+
+
+def own_input(p: dict) -> dict:
+    """What a label decision is about: the payload without its context keys."""
+    return llm.own_input(p, CONTEXT)
 LABEL_PASSES = 3  # a pair whose answers fail validation is asked again, up to this many times
 
 
@@ -398,8 +470,9 @@ def validate_label(p: dict, out: dict) -> None:
         raise ValueError(f"origin {out['origin']} with grade {out['grade']}")
     retrieved = {llm.norm_url(u) for u in out.get("retrieved_urls", [])}
     if out["grade"] == "none":
-        if out["quote"].strip() or out["sources"] or out["origin_year"] is not None:
-            raise ValueError("an unclear origin carries no quote, source or year")
+        if out["quote"].strip() or out["sources"] or out["source_years"] or out["origin_year"] is not None \
+                or out["secondary_origin"] is not None:
+            raise ValueError("an unclear origin carries no quote, source, year or secondary origin")
     else:
         if not out["quote"].strip() or not out["sources"]:
             raise ValueError("a graded origin needs a quote and a source")
@@ -409,7 +482,7 @@ def validate_label(p: dict, out: dict) -> None:
     if (out["discovery_route"] == "unclear") != (not out["route_quote"].strip()):
         raise ValueError(f"discovery_route {out['discovery_route']} with route_quote {out['route_quote']!r}")
     if out["discovery_route"] == "unclear":
-        if out["route_sources"]:
+        if out["route_sources"] or out["route_source_years"]:
             raise ValueError("an unclear route carries no source")
     else:
         if not out["route_sources"]:
@@ -463,9 +536,7 @@ def sources_for(pairs: pd.DataFrame) -> dict[tuple[str, str], list[dict]]:
     """Every stored record of each pair, ranked."""
     if pairs.empty:
         return {}
-    s = frame.query("""SELECT ensembl_id, mondo_id, record_id, service, title, abstract, year, rank
-                       FROM preclin.target_disease_source WHERE (ensembl_id, mondo_id) IN %s ORDER BY rank""",
-                    (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
+    s = frame.query(SOURCES_SQL, (tuple(zip(pairs.ensembl_id, pairs.mondo_id)), ORIGIN_SERVICES))
     return {k: records_from(g.drop(columns=["ensembl_id", "mondo_id"]))
             for k, g in s.groupby(["ensembl_id", "mondo_id"])}
 
@@ -501,6 +572,7 @@ def label_items(pairs: pd.DataFrame, hide_provisional: bool) -> dict[str, dict]:
         item["first_program"] = programs.get(pair, {"entity": "not recorded", "sponsor": None, "phase": 2,
                                                     "entry": entry[pair], "nct_ids": []})
         item["provisional_origin"], item["provisional_year"] = po, py
+        item["provisional_shown"] = not hide_provisional
     return items
 
 
@@ -565,12 +637,13 @@ def label(args) -> None:
             execute_values(cur, INSERT_ORIGIN, rows, page_size=1000)
         conn.commit()
     log(f"pairs={len(items)} decided={len(rows)} undecided={len(todo)} runs={params['runs']}")
+    log("the rewritten rows are not_checked: run `check` on the same pairs before `gate`, `summary` or any test")
 
 
 # --- check ---
 
 CHECK_SYSTEM = f"""You verify one label of what first proposed a drug target for a disease. You are given the label (origin, grade, quote, sources with the years the labeller gave), the cutoff year, the full text of every cited record that was among the records shown to the labeller, and the category definitions. For a cited URL, fetch it. Answer three questions.
-quote_found: yes if the quote, or the sentence it closely paraphrases, is in a cited source; no if it is not; could_not_open if a cited URL could not be fetched and no shown record carries the quote.
+quote_found: yes if the quote, or the sentence it closely paraphrases, is in a cited source; no if it is not; could_not_open if a cited URL could not be fetched and no shown record carries the quote. A cited PubMed or Europe PMC URL is shown to you as a record (its url is given); read the record rather than fetching the page.
 year_ok: yes if every cited source's own date (the publication year it shows) is before the cutoff year; no if any is in or after it; unknown if a cited URL's date could not be read.
 origin_follows: yes if the quoted passage supports the origin category under its definition; partly if it supports the category only together with the other sources, or supports a neighbouring category as well; no if it does not support it.
 note: one sentence.
@@ -596,15 +669,17 @@ def render_check(p: dict) -> str:
            f"LABEL: origin {p['origin']} ({p['grade']}), year {p['origin_year']}, secondary {p['secondary_origin']}",
            f"QUOTE: {p['quote']}",
            "SOURCES: " + "; ".join(f"{s} ({y})" for s, y in zip(p["sources"], p["source_years"])),
-           "CITED RECORDS SHOWN TO THE LABELLER:"]
+           "CITED RECORDS (shown to the labeller, or read for a cited PubMed URL):"]
     for r in p["records"]:
-        out += [f"[{r['record_id']}] ({r['year']}) {r['title']}", r.get("abstract") or "(no abstract)"]
+        where = f" = {r['url']}" if r.get("url") else ""
+        out += [f"[{r['record_id']}]{where} ({r['year']}) {r['title']}", r.get("abstract") or "(no abstract)"]
     if not p["records"]:
         out.append("(none; every cited source is a URL)")
     return "\n".join(out)
 
 
-CHECK_TASK = llm.Task(name="target_origin_check", prompt_version="v1", schema_version="v1", system=CHECK_SYSTEM,
+CHECK_CONTEXT = ("label_decision_id",)  # the row's provenance, not what the checker reads
+CHECK_TASK = llm.Task(name="target_origin_check", prompt_version="v2", schema_version="v1", system=CHECK_SYSTEM,
                       schema=CHECK_SCHEMA, render=render_check, validate=None, subject_type="target_disease",
                       model="claude-sonnet-5-5", effort="medium", max_tokens=4000, tools=CHECK_TOOLS)
 
@@ -642,18 +717,37 @@ def check_items(pairs: pd.DataFrame) -> dict[str, dict]:
     return items
 
 
-def check_payload(row: dict, base: dict, records: list[dict]) -> dict:
-    """One check payload from a labelled row (NaN-free), the pair's base item and the pair's stored records."""
+PMID_URL = re.compile(r"(?:pubmed\.ncbi\.nlm\.nih\.gov/|ncbi\.nlm\.nih\.gov/pubmed/|europepmc\.org/(?:article|abstract)/MED/)(\d+)")
+
+
+def pmid_from_url(url: str) -> str | None:
+    """The PMID a PubMed or Europe PMC MEDLINE URL names; None for any other string."""
+    m = PMID_URL.search(url) if url.startswith("http") else None
+    return m.group(1) if m else None
+
+
+def check_payload(row: dict, base: dict, records: list[dict], fetch=None) -> dict:
+    """One check payload from a labelled row (NaN-free), the pair's base item and the pair's stored records. A cited
+    PubMed URL whose record is not among them is read through E-utilities (fetch: pmids -> efetch tuples) and shown
+    as a record, so the checker need not fetch the page."""
     def clean(v):
         return None if v is None or (isinstance(v, float) and pd.isna(v)) else v
     cited = set(row["sources"])
+    shown = [x for x in records if x["record_id"] in cited]
+    have = {x["record_id"] for x in shown}
+    wanted = {pmid_from_url(s): s for s in row["sources"] if pmid_from_url(s) and f"PMID:{pmid_from_url(s)}" not in have}
+    if wanted:
+        fetched = (fetch or attribution.efetch)(sorted(wanted))
+        for pmid, title, _author, _journal, year, doi, abstract in fetched:
+            shown.append({"record_id": f"PMID:{pmid}", "year": year, "title": title or "", "abstract": abstract,
+                          "doi": doi, "url": wanted.get(pmid)})
     return {**{f: base[f] for f in ["ensembl_id", "mondo_id", "symbol", "disease", "cutoff_year"]},
             "origin": row["origin"],
             "origin_year": None if clean(row["origin_year"]) is None else int(row["origin_year"]),
             "secondary_origin": clean(row["secondary_origin"]), "grade": row["grade"],
             "quote": clean(row["quote"]) or "", "sources": list(row["sources"]),
             "source_years": list((row["parsed_output"] or {}).get("source_years", [])),
-            "records": [x for x in records if x["record_id"] in cited], "label_decision_id": int(row["llm_decision_id"])}
+            "records": shown, "label_decision_id": int(row["llm_decision_id"])}
 
 
 def check(args) -> None:
@@ -663,9 +757,20 @@ def check(args) -> None:
               "effort": CHECK_TASK.effort, "tools": CHECK_TOOLS, "run": None}
     inputs = ["preclin.target_disease_origin", "preclin.target_disease_source", "pv_evidence.llm_decision",
               "web fetch"]
-    run_id = llm.run(CHECK_TASK, items) if items else None
-    params["run"] = str(run_id) if run_id else None
-    decided = llm.decisions(run_id) if run_id else []
+    decided: list[tuple] = []
+    todo = items
+    params["runs"] = []
+    for _ in range(LABEL_PASSES):
+        if not todo:
+            break
+        run_id = llm.run(CHECK_TASK, todo, context=CHECK_CONTEXT)
+        params["runs"].append(str(run_id))
+        new = llm.decisions(run_id)
+        decided += new
+        todo = undecided(todo, new)
+    params["run"] = params["runs"][-1] if params["runs"] else None
+    params["unchecked"] = sorted(todo)
+    run_id = params["run"]
     outcomes = {k: (check_outcome(o), i) for k, i, o in decided}
     with llm.connect() as conn, conn.cursor() as cur:
         llm.record_method(cur, CHECK_METHOD, "Second-model check of the origin labels", CHECK_DESCRIPTION, inputs, params)
@@ -683,12 +788,13 @@ def check(args) -> None:
                             (outcome, decision_id, e, m))
         conn.commit()
     counts = pd.Series([o for o, _ in outcomes.values()]).value_counts().to_dict() if outcomes else {}
-    log(f"graded labels={len(items)} checked={len(outcomes)} outcomes={counts} run={run_id}")
+    log(f"graded labels={len(items)} checked={len(outcomes)} outcomes={counts} still not_checked={len(todo)} "
+        f"runs={params['runs']}")
 
 
 # --- blind coder ---
 
-BLIND_SYSTEM = f"""You label what first proposed a drug target for a disease, from the records given and nothing else: the evidence that made someone think the target was worth a drug in that disease, before any drug on it was tested in patients for it. You are given the gene, the disease, the cutoff year and the records naming both that were published before it (the earliest and the latest, with the total count). Do not use anything you know from outside the records.
+BLIND_SYSTEM = f"""You label what first proposed a drug target for a disease: the evidence that made someone think the target was worth a drug in that disease, before any drug on it was tested in patients for it. You are given the gene, the disease, the cutoff year and the records naming both that were published before it (the earliest and the latest, with the total count). You may search and read the web. Only a source dated before the cutoff year counts: a later source, including a later history or review, is not evidence of what proposed the hypothesis at the time and must not be cited. Nothing you know from memory counts without a source.
 
 ORIGIN. One of these categories:
 {DEFINITIONS}
@@ -696,7 +802,7 @@ The origin is the kind of evidence that first proposed the pair, not the stronge
 
 GRADE. {GRADE_RULE}
 
-SOURCE. For a graded label, exactly one record id from those given, with the year shown for it; an unclear label carries none. note is one sentence."""
+SOURCE. For a graded label, exactly one source: a record id from those given, with the year shown for it, or a URL you fetched or that a search returned in this conversation, with the publication year it shows, before the cutoff year. An unclear label carries none. note is one sentence."""
 
 BLIND_SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -733,7 +839,7 @@ def majority_reference(readings: list[tuple[str, str]]) -> tuple[pd.DataFrame, d
         if n == replicates and replicates > 1:
             unanimous += 1
             rows.append((e, m, top))
-        elif n > len(origins) / 2:
+        elif n >= 2 and n > len(origins) / 2:
             majority += 1
             rows.append((e, m, top))
         else:
@@ -764,20 +870,27 @@ def validate_blind(p: dict, out: dict) -> None:
             raise ValueError("an unclear origin carries no quote or source")
         return
     years = {r["record_id"]: r["year"] for r in p["records"]}
-    if not out["quote"].strip() or out["source"] not in years:
-        raise ValueError(f"a graded origin needs a quote and a source among the records given, not {out['source']!r}")
-    if out["source_year"] != years[out["source"]]:
-        raise ValueError(f"{out['source']} is dated {years[out['source']]}, not {out['source_year']}")
+    retrieved = {llm.norm_url(u) for u in out.get("retrieved_urls", [])}
+    if not out["quote"].strip() or not out["source"]:
+        raise ValueError("a graded origin needs a quote and a source")
+    if out["source"] in years:
+        if out["source_year"] != years[out["source"]]:
+            raise ValueError(f"{out['source']} is dated {years[out['source']]}, not {out['source_year']}")
+    elif llm.norm_url(out["source"]) not in retrieved:
+        raise ValueError(f"cites a source it did not retrieve: {out['source']}")
+    if out["source_year"] is None or out["source_year"] >= p["cutoff_year"]:
+        raise ValueError(f"source year {out['source_year']} is not before the cutoff year {p['cutoff_year']}")
 
 
-BLIND_TASK = llm.Task(name="target_origin_blind_read", prompt_version="v1", schema_version="v1", system=BLIND_SYSTEM,
+BLIND_TASK = llm.Task(name="target_origin_blind_read", prompt_version="v2", schema_version="v1", system=BLIND_SYSTEM,
                       schema=BLIND_SCHEMA, render=render_blind, validate=validate_blind, subject_type="target_disease",
-                      model="claude-opus-5-5", effort="medium", max_tokens=8000, tools=None)
+                      model="claude-opus-5-5", effort="medium", max_tokens=16000, tools=TOOLS)
 
 BLIND_DESCRIPTION = f"""Blind reference reading of a hand-check set (#146; the owner's decision of 2026-11-19 that a
 model reads the set in place of a human hand check): task {BLIND_TASK.name} {BLIND_TASK.prompt_version}
-({BLIND_TASK.model}, no tools) labels each pair from the same records the labeller was shown, with no provisional
-origin and no program, {BLIND_REPLICATES} times independently. The reference label is the majority of the readings;
+({BLIND_TASK.model}; v2 with the labeller's web search and fetch, after v1 without them failed the gate for want of
+access) labels each pair from the same records the labeller was shown, with no provisional origin and no program,
+{BLIND_REPLICATES} times independently. The reference label is the majority of the readings;
 pairs with no majority are reported and left out of the agreement gate; the readings' mutual agreement is the
 consistency check. The readings never shape a prompt revision."""
 
@@ -840,7 +953,9 @@ def stop_modes() -> pd.DataFrame:
     return d[["ensembl_id", "mondo_id", "mode"]]
 
 
-def sample(_args) -> None:
+def sample(args) -> None:
+    if os.path.exists(PILOT_CSV) and not args.force:
+        raise SystemExit(f"{PILOT_CSV} exists; the pilot is drawn once. Pass --force to redraw it.")
     hub = pair_frame("window")
     cohort = hub[~hub.validated_at_entry]
     modes = stop_modes()
@@ -969,7 +1084,7 @@ def _card(p: dict, defs: dict[str, str]) -> str:
 <h2>{h.escape(p["symbol"])} &times; {h.escape(p["disease"])}</h2>
 <div class="meta">{h.escape(p["gene_name"])} ({h.escape(p["ensembl_id"])}); {h.escape(p["mondo_id"])}. <b>Cutoff year {p["cutoff_year"]}</b>: only sources dated {p["cutoff_year"] - 1} or earlier count.<br>
 First program: {h.escape(str(fp.get("entity", "not recorded")))}; sponsor {h.escape(str(fp.get("sponsor") or "not recorded"))}; Phase {h.escape(str(fp.get("phase", "")))} entry {h.escape(str(fp.get("entry", "")))}; trials {h.escape(", ".join(fp.get("nct_ids") or []) or "not recorded")}.<br>
-Provisional origin (earliest dated item in the evidence databases; the model saw it too): <b>{h.escape(p.get("provisional_origin") or "unclear")}</b>{prov_year}.<br>
+Provisional origin (earliest dated item in the evidence databases; the model saw it too): <b>{h.escape(p.get("provisional_origin") or "none recorded")}</b>{prov_year}.<br>
 Search before the cutoff: <a href="{h.escape(p["links"]["pubmed"])}" target="_blank" rel="noopener">PubMed</a> &middot; <a href="{h.escape(p["links"]["patents"])}" target="_blank" rel="noopener">Google Patents</a></div>
 <div class="records"><b>{n}</b> records name the gene and the disease before the cutoff year{shown}.{"".join(recs) or '<div class="rec">(none)</div>'}</div>
 <form onsubmit="return false">
@@ -1073,13 +1188,18 @@ def kappa(a: pd.Series, b: pd.Series) -> float | None:
 
 
 def gate_result(reader: pd.DataFrame, stored: pd.DataFrame, raw: pd.DataFrame, coverage: dict[str, float],
-                blind: pd.DataFrame | None, kappa_min: float = KAPPA_MIN, gap_max: float = GAP_MAX) -> dict:
+                blind: pd.DataFrame | None, kappa_min: float = KAPPA_MIN, gap_max: float = GAP_MAX,
+                covered: set[tuple[str, str]] | None = None) -> dict:
     """The gate statistics for one hand-check set. reader: ensembl_id, mondo_id, origin; stored: the same after the
     check; raw: the labeller's origin and secondary_origin; coverage: group -> share of pairs with a record; blind:
-    ensembl_id, mondo_id, blind_origin, or None."""
+    ensembl_id, mondo_id, blind_origin, or None; covered: the pairs with at least one record, for the stratified
+    kappas. A pair the reader decided and the labeller did not counts as unclear on the labeller's side."""
     on = ["ensembl_id", "mondo_id"]
-    m = reader[on + ["origin"]].merge(stored[on + ["origin"]].rename(columns={"origin": "stored"}), on=on) \
-        .merge(raw[on + ["origin", "secondary_origin"]].rename(columns={"origin": "raw"}), on=on)
+    m = reader[on + ["origin"]].merge(stored[on + ["origin"]].rename(columns={"origin": "stored"}), on=on, how="left") \
+        .merge(raw[on + ["origin", "secondary_origin"]].rename(columns={"origin": "raw"}), on=on, how="left")
+    n_missing = int(m.stored.isna().sum())
+    m["stored"] = m.stored.fillna("unclear")
+    m["raw"] = m.raw.fillna("unclear")
     layer = lambda s: s.map(LAYER)
     gap = abs(coverage["not_causal"] - coverage["other"]) * 100
     out = {"n": len(m), "kappa_stored": kappa(m.origin, m.stored), "kappa_raw": kappa(m.origin, m.raw),
@@ -1087,7 +1207,12 @@ def gate_result(reader: pd.DataFrame, stored: pd.DataFrame, raw: pd.DataFrame, c
            "kappa_raw_layer": kappa(layer(m.origin), layer(m.raw)),
            "any_origin_agree": float(((m.origin == m.raw) | (m.origin == m.secondary_origin)).mean()) if len(m) else None,
            "coverage": {k: float(v) for k, v in coverage.items()}, "gap_points": round(gap, 2),
-           "kappa_blind_vs_reader": None, "kappa_blind_vs_raw": None}
+           "n_missing": n_missing, "kappa_blind_vs_reader": None, "kappa_blind_vs_raw": None}
+    if covered is not None:
+        is_covered = pd.Series([(e, x) in covered for e, x in zip(m.ensembl_id, m.mondo_id)], index=m.index)
+        out["n_covered"] = int(is_covered.sum())
+        out["kappa_covered"] = kappa(m.origin[is_covered], m.stored[is_covered])
+        out["kappa_uncovered"] = kappa(m.origin[~is_covered], m.stored[~is_covered])
     if blind is not None:
         b = m.merge(blind[on + ["blind_origin"]], on=on)
         out["kappa_blind_vs_reader"] = kappa(b.origin, b.blind_origin)
@@ -1100,7 +1225,11 @@ def gate_result(reader: pd.DataFrame, stored: pd.DataFrame, raw: pd.DataFrame, c
 def coverage_by_group() -> dict[str, float]:
     """Share of pilot pairs, per group, with at least one stored pre-entry record."""
     pilot = pd.read_csv(PILOT_CSV, dtype=str)
-    have = frame.query("SELECT DISTINCT ensembl_id, mondo_id FROM preclin.target_disease_source")
+    keys = tuple(zip(pilot.ensembl_id, pilot.mondo_id))
+    unsearched = set(keys) - searched()
+    if unsearched:
+        raise SystemExit(f"{len(unsearched)} pilot pairs have not been searched; run `search --pairs pilot` first")
+    have = frame.query(COVERED_SQL, (keys, ORIGIN_SERVICES))
     have = set(zip(have.ensembl_id, have.mondo_id))
     pilot["covered"] = [(e, m) in have for e, m in zip(pilot.ensembl_id, pilot.mondo_id)]
     return pilot.groupby("group").covered.mean().to_dict()
@@ -1116,15 +1245,30 @@ def decision_origins(task: str, column: str) -> pd.DataFrame:
     return d[["ensembl_id", "mondo_id", column, "secondary_origin"]]
 
 
-def blind_reference() -> tuple[pd.DataFrame, dict]:
-    """The majority origin of the blind readings per pair, and their consistency."""
+def blind_reference(keys: set[str] | None = None) -> tuple[pd.DataFrame, dict]:
+    """The majority origin of the blind readings per pair (those in keys when given), and their consistency."""
     d = llm.latest_decisions(BLIND_TASK.name, BLIND_TASK.prompt_version)
-    return majority_reference([(k, o["origin"]) for k, o in zip(d.key, d.parsed_output)])
+    readings = [(k, o["origin"]) for k, o in zip(d.key, d.parsed_output) if keys is None or key(*split_key(k)) in keys]
+    return majority_reference(readings)
+
+
+def stored_labels(pairs: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The labelled rows of the pairs after the check (ensembl_id, mondo_id, origin, grade, check_outcome) and the
+    labeller's raw origin and secondary origin read from each row's own decision."""
+    on = ["ensembl_id", "mondo_id"]
+    stored = frame.query("""SELECT o.ensembl_id, o.mondo_id, o.origin, o.grade, o.check_outcome,
+                                   d.parsed_output->>'origin' AS raw, d.parsed_output->>'secondary_origin' AS secondary_origin
+                            FROM preclin.target_disease_origin o JOIN pv_evidence.llm_decision d USING (llm_decision_id)
+                            WHERE o.basis = 'labelled' AND (o.ensembl_id, o.mondo_id) IN %s""",
+                         (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
+    raw = stored[on + ["raw", "secondary_origin"]].rename(columns={"raw": "origin"})
+    return stored[on + ["origin", "grade", "check_outcome"]], raw
 
 
 def gate(args) -> None:
     import json
-    reference, consistency = blind_reference()
+    pairs = pair_frame(f"set_{args.set}")
+    reference, consistency = blind_reference({key(e, m) for e, m in zip(pairs.ensembl_id, pairs.mondo_id)})
     if args.hand_check:
         reader = pd.read_csv(args.hand_check, dtype=str)
         missing = {"ensembl_id", "mondo_id", "origin"} - set(reader.columns)
@@ -1137,14 +1281,16 @@ def gate(args) -> None:
         blind = reference.rename(columns={"origin": "blind_origin"}) if len(reference) else None
     else:
         reader, blind = reference, None
-    pairs = pair_frame(f"set_{args.set}")
-    stored = frame.query("""SELECT ensembl_id, mondo_id, origin FROM preclin.target_disease_origin
-                            WHERE basis = 'labelled' AND (ensembl_id, mondo_id) IN %s""",
-                         (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
-    raw = decision_origins(LABEL_TASK.name, "origin")
-    result = gate_result(reader, stored, raw, coverage_by_group(), blind)
+    stored, raw = stored_labels(pairs)
+    have = frame.query(COVERED_SQL, (tuple(zip(pairs.ensembl_id, pairs.mondo_id)), ORIGIN_SERVICES))
+    covered = set(zip(have.ensembl_id, have.mondo_id))
+    result = gate_result(reader, stored, raw, coverage_by_group(), blind, covered=covered)
+    runs = frame.query("SELECT method_id, parameters FROM preclin.analysis_method WHERE method_id IN %s",
+                       ((LABEL_METHOD, CHECK_METHOD, BLIND_METHOD),))
     result.update({"set": args.set, "reader": args.reader, "read_pairs": len(reader),
                    "labelled_in_set": len(stored), "kappa_min": KAPPA_MIN, "gap_max": GAP_MAX,
+                   "graded_not_checked": int((stored.grade.ne("none") & stored.check_outcome.eq("not_checked")).sum()),
+                   "runs": {m: (par.get("runs") or par.get("run")) for m, par in zip(runs.method_id, runs.parameters)},
                    "reference": "hand check" if args.hand_check else "blind model reading, majority of replicates",
                    "consistency": consistency})
     with open(GATE_JSON, "w") as f:
@@ -1165,8 +1311,7 @@ def summary(args) -> None:
     o = frame.query("""SELECT ensembl_id, mondo_id, origin, grade, check_outcome, discovery_route
                        FROM preclin.target_disease_origin WHERE basis = 'labelled' AND (ensembl_id, mondo_id) IN %s""",
                     (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
-    have = frame.query("SELECT ensembl_id, mondo_id, count(*) AS records FROM preclin.target_disease_source "
-                       "WHERE (ensembl_id, mondo_id) IN %s GROUP BY 1, 2", (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
+    have = frame.query(COVERED_SQL, (tuple(zip(pairs.ensembl_id, pairs.mondo_id)), ORIGIN_SERVICES))
     p = pairs.merge(have, on=on, how="left").fillna({"records": 0})
     log(f"{len(pairs)} pairs in {args.pairs}: {int((p.records > 0).sum())} with records "
         f"(median {int(p.records.median())}, max {int(p.records.max())}); {len(o)} labelled")
@@ -1180,7 +1325,9 @@ def summary(args) -> None:
     usage = frame.query("""SELECT d.task, count(*) AS n, avg((d.usage->>'input_tokens')::float) AS input_tokens,
                                   avg((d.usage->>'output_tokens')::float) AS output_tokens
                            FROM pv_evidence.llm_decision d
-                           WHERE d.task IN %s AND d.subject_key IN %s GROUP BY 1""",
+                           WHERE d.task IN %s AND d.validation_status = 'validated'
+                             AND split_part(d.subject_key, '|', 1) || '|' || split_part(d.subject_key, '|', 2) IN %s
+                           GROUP BY 1""",
                         ((LABEL_TASK.name, CHECK_TASK.name, BLIND_TASK.name),
                          tuple(key(e, m) for e, m in zip(pairs.ensembl_id, pairs.mondo_id))))
     if len(usage):
@@ -1209,7 +1356,9 @@ def add_commands(sub) -> None:
     p = sub.add_parser("blind", help="second model labels a hand-check set from the records alone")
     pairs_option(p, default="set_a")
     p.set_defaults(fn=blind)
-    sub.add_parser("sample", help="draw the pilot of 100 pairs and the two hand-check sets").set_defaults(fn=sample)
+    p = sub.add_parser("sample", help="draw the pilot of 100 pairs and the two hand-check sets")
+    p.add_argument("--force", action="store_true", help="redraw even though the pilot CSV exists")
+    p.set_defaults(fn=sample)
     p = sub.add_parser("package", help="write the reader's page for a hand-check set")
     p.add_argument("--set", choices=["a", "b"], default="a")
     p.add_argument("--out", required=True, help="path of the HTML file to write")

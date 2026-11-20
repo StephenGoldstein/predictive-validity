@@ -40,16 +40,16 @@ def hgnc(**kw) -> pd.DataFrame:
     return pd.DataFrame([row])
 
 
-def test_gene_names_keeps_the_symbol_even_when_short():
+def test_a_short_symbol_gives_way_to_the_other_names():
     names = to.gene_names("MET", hgnc(alias_symbols=["HGFR", "c-Met", "RCCP2"]), "hepatocyte growth factor receptor")
-    assert names[0] == "MET"
-    assert "hepatocyte growth factor receptor" in names and "HGFR" in names and "c-Met" in names
+    assert names[0] == "hepatocyte growth factor receptor" and "MET" not in names
+    assert "HGFR" in names and "c-Met" in names
 
 
 def test_gene_names_drops_identifiers_and_caps():
     aliases = [f"ALIAS{i:02d}X" for i in range(15)] + ["(2S)-2-amino", "Q9UQ80"]
     names = to.gene_names("TNF", hgnc(symbol="TNF", name="tumor necrosis factor", alias_symbols=aliases), None)
-    assert names[0] == "TNF" and "(2S)-2-amino" not in names and "Q9UQ80" not in names
+    assert names[0] == "tumor necrosis factor" and "(2S)-2-amino" not in names and "Q9UQ80" not in names
     assert len(names) == to.MAX_GENE_NAMES
     assert len({n.lower() for n in names}) == len(names)
 
@@ -407,3 +407,126 @@ def test_check_payload_has_no_nan():
     assert p["secondary_origin"] is None and p["quote"] == "" and p["origin_year"] == 1999
     assert [r["record_id"] for r in p["records"]] == ["PMID:1"] and p["label_decision_id"] == 7
     json.dumps(p, allow_nan=False)
+
+
+# --- the re-run's three fixes: protein names, a web-enabled reference reader, a checker that reads PubMed itself ---
+
+def test_protein_names_are_read_from_uniprot_and_hgnc_documents():
+    uni = {"proteinDescription": {"recommendedName": {"fullName": {"value": "Prostacyclin receptor"},
+                                                      "shortNames": [{"value": "IP"}]},
+                                  "alternativeNames": [{"fullName": {"value": "Prostaglandin I2 receptor"},
+                                                        "shortNames": [{"value": "PGI receptor"}, {"value": "PGI2 receptor"}]},
+                                                       {"fullName": {"value": "Prostanoid IP receptor"}}]}}
+    assert to.uniprot_names(uni) == ["Prostacyclin receptor", "IP", "Prostaglandin I2 receptor", "PGI receptor",
+                                     "PGI2 receptor", "Prostanoid IP receptor"]
+    hg = {"alias_name": ["prostacyclin receptor"], "prev_name": ["prostaglandin I2 (prostacyclin) receptor (IP)"]}
+    assert to.hgnc_names(hg) == ["prostacyclin receptor", "prostaglandin I2 (prostacyclin) receptor (IP)"]
+    assert to.uniprot_names({}) == [] and to.hgnc_names({}) == []
+
+
+def test_gene_names_merge_protein_names_after_the_symbol_and_name():
+    protein = ["Prostacyclin receptor", "IP", "Prostaglandin I2 receptor", "PGI2 receptor", "prostacyclin receptor",
+               "prostaglandin I2 (prostacyclin) receptor (IP)"]
+    names = to.gene_names("PTGIR", hgnc(symbol="PTGIR", name="prostaglandin I2 receptor", alias_symbols=["IP"]),
+                          "prostaglandin I2 receptor", protein)
+    assert names[:2] == ["PTGIR", "prostaglandin I2 receptor"]
+    assert "Prostacyclin receptor" in names and "PGI2 receptor" in names
+    assert "IP" not in names and "prostaglandin I2 (prostacyclin) receptor (IP)" not in names
+    assert len({n.lower() for n in names}) == len(names) and len(names) <= to.MAX_GENE_NAMES
+
+
+def test_blind_reader_v2_may_cite_a_retrieved_url_before_the_cutoff():
+    assert to.BLIND_TASK.prompt_version == "v2" and to.BLIND_TASK.tools
+    base = {"origin": "clinical_observation", "secondary_origin": None, "grade": "stated", "quote": "q",
+            "source": URL, "source_year": 2005, "note": "", "retrieved_urls": [URL]}
+    to.validate_blind(blind_payload(), base)
+    for bad in [{"retrieved_urls": []}, {"source_year": 2008}, {"source": "PMID:1", "source_year": 2000}]:
+        with pytest.raises(ValueError):
+            to.validate_blind(blind_payload(), {**base, **bad})
+    to.validate_blind(blind_payload(), {**base, "source": "PMID:1", "source_year": 1999})
+
+
+def test_pmid_from_url():
+    assert to.pmid_from_url("https://pubmed.ncbi.nlm.nih.gov/12345/") == "12345"
+    assert to.pmid_from_url("https://www.ncbi.nlm.nih.gov/pubmed/12345") == "12345"
+    assert to.pmid_from_url("https://europepmc.org/article/MED/12345") == "12345"
+    assert to.pmid_from_url("https://europepmc.org/abstract/MED/12345?x=1") == "12345"
+    assert to.pmid_from_url("https://pmc.ncbi.nlm.nih.gov/articles/PMC123/") is None
+    assert to.pmid_from_url("https://patents.google.com/patent/US123") is None
+    assert to.pmid_from_url("PMID:77") is None
+
+
+def test_check_payload_resolves_pubmed_urls_into_records():
+    row = {"ensembl_id": "ENSG1", "mondo_id": "MONDO:1", "origin": "diseased_tissue", "origin_year": 1999,
+           "secondary_origin": None, "grade": "stated", "quote": "q",
+           "sources": ["https://pubmed.ncbi.nlm.nih.gov/555/", "PMID:1"], "llm_decision_id": 7,
+           "parsed_output": {"source_years": [2001, 1999]}}
+    base = {"ensembl_id": "ENSG1", "mondo_id": "MONDO:1", "symbol": "TNF", "disease": "RA", "cutoff_year": 2008}
+    calls = []
+    def fetch(pmids):
+        calls.append(list(pmids))
+        return [("555", "Fetched title", "A", "J", 2001, None, "fetched abstract")]
+    p = to.check_payload(row, base, [{"record_id": "PMID:1", "year": 1999, "title": "T", "abstract": "a"}], fetch=fetch)
+    assert calls == [["555"]]
+    assert [(r["record_id"], r["year"]) for r in p["records"]] == [("PMID:1", 1999), ("PMID:555", 2001)]
+    assert p["records"][1]["url"] == "https://pubmed.ncbi.nlm.nih.gov/555/"
+    assert p["sources"] == ["https://pubmed.ncbi.nlm.nih.gov/555/", "PMID:1"]
+
+
+# --- review fix pass ---
+
+def test_short_symbol_is_searched_only_when_it_is_the_only_name():
+    assert to.gene_names("AR", hgnc(symbol="AR", name="androgen receptor"), None, ["Androgen receptor"]) == ["androgen receptor"]
+    assert to.gene_names("AR", hgnc(symbol="AR", name="", alias_symbols=[]), None, []) == ["AR"]
+    assert to.gene_names("KDR", hgnc(symbol="KDR", name="kinase insert domain receptor"), None,
+                         ["Vascular endothelial growth factor receptor 2", "VEGFR-2"])[0] == "kinase insert domain receptor"
+    assert to.gene_names("PTGIR", hgnc(symbol="PTGIR", name="prostaglandin I2 receptor"), None, [])[0] == "PTGIR"
+
+
+def test_hide_provisional_is_part_of_the_decision_input():
+    assert "provisional_shown" not in to.CONTEXT and "first_program" in to.CONTEXT
+    p = label_payload()
+    assert to.own_input({**p, "provisional_shown": False}) != to.own_input({**p, "provisional_shown": True})
+    assert "first_program" not in to.own_input(p) and "records" in to.own_input(p)
+
+
+def test_check_task_is_v2_and_ignores_the_label_decision_id():
+    assert to.CHECK_TASK.prompt_version == "v2" and "label_decision_id" in to.CHECK_CONTEXT
+
+
+def test_origin_services_filter_every_shared_table_read():
+    assert to.ORIGIN_SERVICES == ("pubmed", "europepmc")
+    for sql in [to.DELETE_SOURCES, to.DELETE_SEARCH, to.SEARCHED_SQL, to.SOURCES_SQL, to.COVERED_SQL]:
+        assert "service IN %s" in sql or "service IN ('pubmed', 'europepmc')" in sql
+
+
+def test_majority_needs_two_agreeing_readings():
+    ref, stats = to.majority_reference([("ENSG4|MONDO:1|r1", "cell_screen")])
+    assert ref.empty and stats["no_majority"] == 1
+
+
+def test_gate_counts_missing_labels_as_disagreement_and_stratifies_by_coverage():
+    reader, stored, raw = gate_frames(disagree=0)
+    stored = stored.iloc[:-2]  # two pairs the labeller never decided
+    raw = raw.iloc[:-2]
+    covered = {(e, m) for e, m in zip(reader.ensembl_id[:30], reader.mondo_id[:30])}
+    r = to.gate_result(reader, stored, raw, {"not_causal": 0.9, "other": 0.9}, None, covered=covered)
+    assert r["n"] == 50 and r["n_missing"] == 2 and r["kappa_stored"] < 1.0
+    assert r["n_covered"] == 30 and r["kappa_covered"] == 1.0 and r["kappa_uncovered"] < 1.0
+
+
+def test_validation_loose_ends():
+    out = {**good_label(), **UNCLEAR, "source_years": [1999]}
+    with pytest.raises(ValueError):
+        to.validate_label(label_payload(), out)
+    with pytest.raises(ValueError):
+        to.validate_label(label_payload(), {**good_label(), **UNCLEAR, "secondary_origin": "mouse_genetics"})
+    with pytest.raises(ValueError):
+        to.validate_label(label_payload(), {**good_label(), "discovery_route": "unclear", "route_quote": "",
+                                            "route_sources": [], "route_source_years": [2003]})
+
+
+def test_sample_refuses_to_overwrite_without_force():
+    from pipeline import target_disease
+    ap = target_disease.parser()
+    assert ap.parse_args(["sample"]).force is False and ap.parse_args(["sample", "--force"]).force is True

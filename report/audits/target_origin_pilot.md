@@ -19,10 +19,11 @@ unresolved left out of both groups, 127 of 5,091, per #158; frame 703 and 4,261)
 | records stored | | | 4,583 (median per pair 0, max 1,446) |
 
 Coverage gap 8 points: **passes** (at most 10). Fifty-six pairs have no record that names both the gene and the
-disease before the cutoff year. The query is correct; the names are too few. The hub's HGNC table carries symbols only,
-so a receptor of a well-known ligand is searched under its HGNC name alone (PTGIR: "prostaglandin I2 receptor" and the
-two-letter alias "IP", while papers say "prostacyclin receptor" or "IP receptor"; the gene alone finds 38 pre-2017
-abstracts, the disease alone 1,141, both none).
+disease before the cutoff year. The query is correct; the names are too few. The hub's HGNC table carries the symbol,
+the HGNC name and alias symbols but not the protein names, so a receptor of a well-known ligand is searched under its
+HGNC name alone (PTGIR was searched as "PTGIR" and "prostaglandin I2 receptor"; its alias "IP" is dropped as too
+short; papers say "prostacyclin receptor" or "IP receptor"; the gene names alone find 38 pre-2017 abstracts, the
+disease alone 1,141, both none).
 
 ## Labelling (`label --pairs pilot`, Opus 5.5, web search and fetch)
 
@@ -70,7 +71,8 @@ human_cell_perturbation, diseased_tissue, observational_biomarker, tumour_geneti
 | pairs with no record | 33 | 0.00 | 0.00 | 33 | 5 |
 
 Agreement gate **fails** (0.42 against 0.6). Collapsed-layer κ 0.41 (stored) and 0.20 (raw); the reference's origin
-is the labeller's primary or secondary origin for 0.31 of pairs.
+is the labeller's primary or secondary origin for 0.31 of pairs. (The split by coverage was computed by hand for this
+first run; `gate` now reports it as `kappa_covered` and `kappa_uncovered`.)
 
 ## Reading of the result
 
