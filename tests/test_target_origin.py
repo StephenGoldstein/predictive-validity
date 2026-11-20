@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from pipeline import literature
 from pipeline import target_origin as to
@@ -123,3 +124,87 @@ def test_cli_registers_every_command():
     assert ap.parse_args(["blind"]).pairs == "set_a"
     for cmd in ["check", "sample", "summary", "build", "provisional"]:
         assert ap.parse_args([cmd]).fn.__name__ == cmd
+
+
+# --- labelling: validation, rendering, rows ---
+
+URL = "https://patents.google.com/patent/US123"
+
+
+def label_payload() -> dict:
+    return {"ensembl_id": "ENSG1", "mondo_id": "MONDO:1", "symbol": "TNF", "gene_name": "tumor necrosis factor",
+            "disease": "rheumatoid arthritis", "cutoff_year": 2008, "n_records_total": 2,
+            "records": [{"record_id": "PMID:1", "year": 1999, "title": "T1", "abstract": "a", "rank": 1},
+                        {"record_id": "MED:2", "year": 2003, "title": "T2", "abstract": "b", "rank": 2}],
+            "first_program": {"entity": "drug x", "sponsor": "Sponsor", "phase": 2, "entry": "2008-03-01",
+                              "nct_ids": ["NCT00000001"]},
+            "provisional_origin": "mouse_genetics", "provisional_year": 1995}
+
+
+def good_label() -> dict:
+    return {"origin": "diseased_tissue", "origin_year": 1999, "secondary_origin": "mouse_genetics", "grade": "stated",
+            "quote": "TNF is raised in synovium", "sources": ["PMID:1"], "source_years": [1999], "rationale": "r",
+            "discovery_route": "derived_from_active", "route_quote": "derived from", "route_sources": ["MED:2"],
+            "route_source_years": [2003], "retrieved_urls": [URL]}
+
+
+UNCLEAR = {"origin": "unclear", "origin_year": None, "secondary_origin": None, "grade": "none", "quote": "",
+           "sources": [], "source_years": [], "discovery_route": "unclear", "route_quote": "", "route_sources": [],
+           "route_source_years": []}
+
+
+@pytest.mark.parametrize("change, ok", [
+    ({}, True),
+    (UNCLEAR, True),
+    ({"sources": [URL], "source_years": [2005], "origin_year": 2005}, True),
+    ({"secondary_origin": "diseased_tissue"}, False),
+    ({"origin": "unclear"}, False),
+    ({"grade": "none"}, False),
+    ({"quote": "  "}, False),
+    ({"sources": ["PMID:9"], "source_years": [1999]}, False),
+    ({"source_years": [2000]}, False),
+    ({"sources": [URL], "source_years": [2008], "origin_year": 2008}, False),
+    ({"sources": ["PMID:1", URL], "source_years": [1999]}, False),
+    ({"origin_year": 1997}, False),
+    ({**UNCLEAR, "origin_year": 1999}, False),
+    ({"discovery_route": "unclear"}, False),
+    ({"route_sources": [], "route_source_years": []}, False),
+    ({"route_sources": ["MED:2"], "route_source_years": [2004]}, False),
+    ({"origin": "not_a_category"}, False),
+])
+def test_validate_label(change, ok):
+    out = {**good_label(), **change}
+    if ok:
+        to.validate_label(label_payload(), out)
+    else:
+        with pytest.raises(ValueError):
+            to.validate_label(label_payload(), out)
+
+
+def test_render_label_omits_the_provisional_line_when_hidden():
+    shown = to.render_label(label_payload())
+    assert "mouse_genetics" in shown and "1995" in shown and "PMID:1" in shown and "NCT00000001" in shown
+    assert "2007 or earlier" in shown
+    hidden = to.render_label({**label_payload(), "provisional_origin": None, "provisional_year": None})
+    assert "PROVISIONAL" not in hidden and "mouse_genetics" not in hidden
+
+
+def test_undecided_is_the_items_not_in_decided():
+    items = {"a": {"x": 1}, "b": {"x": 2}}
+    assert to.undecided(items, [("a", 1, {})]) == {"b": {"x": 2}}
+
+
+def test_origin_rows_follow_the_insert_order():
+    rows = to.origin_rows([("ENSG1|MONDO:1", 77, good_label())])
+    assert rows == [("ENSG1", "MONDO:1", "labelled", "diseased_tissue", 1999, "mouse_genetics", "stated", ["PMID:1"],
+                     "TNF is raised in synovium", 77, to.LABEL_METHOD, "not_checked", "derived_from_active",
+                     "derived from", ["MED:2"])]
+    unclear = to.origin_rows([("ENSG1|MONDO:1", 78, {**good_label(), **UNCLEAR})])[0]
+    assert unclear[3:9] == ("unclear", None, None, "none", [], None) and unclear[12:15] == ("unclear", None, [])
+
+
+def test_replace_rows_only_touches_the_keys_it_decided():
+    keys = [("ENSG1", "MONDO:1"), ("ENSG2", "MONDO:2")]
+    sql, params = to.replace_sql(keys)
+    assert "WHERE basis = 'labelled' AND (ensembl_id, mondo_id) IN %s" in sql
+    assert params == (tuple(keys),)
