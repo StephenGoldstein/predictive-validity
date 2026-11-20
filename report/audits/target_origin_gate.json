@@ -1,0 +1,31 @@
+{
+  "n": 49,
+  "kappa_stored": 0.42072322670375517,
+  "kappa_raw": 0.21340887629839467,
+  "kappa_stored_layer": 0.4088005677785663,
+  "kappa_raw_layer": 0.19865319865319864,
+  "any_origin_agree": 0.30612244897959184,
+  "coverage": {
+    "not_causal": 0.4,
+    "other": 0.48
+  },
+  "gap_points": 8.0,
+  "kappa_blind_vs_reader": null,
+  "kappa_blind_vs_raw": null,
+  "pass": false,
+  "set": "a",
+  "reader": "model",
+  "read_pairs": 49,
+  "labelled_in_set": 50,
+  "kappa_min": 0.6,
+  "gap_max": 10.0,
+  "reference": "blind model reading, majority of replicates",
+  "consistency": {
+    "pairs": 50,
+    "replicates": 3,
+    "unanimous": 46,
+    "majority": 3,
+    "no_majority": 1,
+    "pairwise_agreement": 0.94
+  }
+}

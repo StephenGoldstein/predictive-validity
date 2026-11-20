@@ -396,6 +396,7 @@ def test_schemas_express_nullable_enums_with_anyof():
 
 def test_check_payload_has_no_nan():
     import json
+
     import numpy as np
     row = {"ensembl_id": "ENSG1", "mondo_id": "MONDO:1", "origin": "diseased_tissue", "origin_year": 1999.0,
            "secondary_origin": np.nan, "grade": "stated", "quote": np.nan, "sources": ["PMID:1"], "llm_decision_id": 7,
