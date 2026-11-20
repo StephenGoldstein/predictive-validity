@@ -600,7 +600,7 @@ def render_check(p: dict) -> str:
 
 CHECK_TASK = llm.Task(name="target_origin_check", prompt_version="v1", schema_version="v1", system=CHECK_SYSTEM,
                       schema=CHECK_SCHEMA, render=render_check, validate=None, subject_type="target_disease",
-                      model="claude-sonnet-5", effort="medium", max_tokens=4000, tools=CHECK_TOOLS)
+                      model="claude-sonnet-5-5", effort="medium", max_tokens=4000, tools=CHECK_TOOLS)
 
 CHECK_DESCRIPTION = f"""For each graded labelled row of {LABEL_METHOD}: task {CHECK_TASK.name} {CHECK_TASK.prompt_version}
 ({CHECK_TASK.model}, web fetch only) reads the label, its quote and sources, and the full text of the cited records,
