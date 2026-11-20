@@ -383,3 +383,12 @@ def test_bundle_tolerates_missing_abstracts_from_a_dataframe():
     assert [r["abstract"] for r in to.bundle(rows)] == ["", ""]
     df = pd.DataFrame(rows)
     assert all(r["abstract"] is None for r in to.records_from(df))
+
+
+def test_schemas_express_nullable_enums_with_anyof():
+    for schema in [to.LABEL_SCHEMA, to.BLIND_SCHEMA]:
+        sec = schema["properties"]["secondary_origin"]
+        assert "enum" not in sec and "type" not in sec
+        assert sec["anyOf"] == [{"type": "string", "enum": to.ORIGINS}, {"type": "null"}]
+        for prop in schema["properties"].values():
+            assert None not in prop.get("enum", [])
