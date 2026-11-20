@@ -636,16 +636,24 @@ def check_items(pairs: pd.DataFrame) -> dict[str, dict]:
     base = pair_items(pairs)
     sources = sources_for(pairs)
     items = {}
-    for r in rows.itertuples():
-        k = key(r.ensembl_id, r.mondo_id)
-        cited = set(r.sources)
-        full = [x for x in sources.get((r.ensembl_id, r.mondo_id), []) if x["record_id"] in cited]
-        items[k] = {**{f: base[k][f] for f in ["ensembl_id", "mondo_id", "symbol", "disease", "cutoff_year"]},
-                    "origin": r.origin, "origin_year": None if pd.isna(r.origin_year) else int(r.origin_year),
-                    "secondary_origin": r.secondary_origin, "grade": r.grade, "quote": r.quote or "",
-                    "sources": list(r.sources), "source_years": list(r.parsed_output.get("source_years", [])),
-                    "records": full, "label_decision_id": int(r.llm_decision_id)}
+    for r in records_from(rows):
+        k = key(r["ensembl_id"], r["mondo_id"])
+        items[k] = check_payload(r, base[k], sources.get((r["ensembl_id"], r["mondo_id"]), []))
     return items
+
+
+def check_payload(row: dict, base: dict, records: list[dict]) -> dict:
+    """One check payload from a labelled row (NaN-free), the pair's base item and the pair's stored records."""
+    def clean(v):
+        return None if v is None or (isinstance(v, float) and pd.isna(v)) else v
+    cited = set(row["sources"])
+    return {**{f: base[f] for f in ["ensembl_id", "mondo_id", "symbol", "disease", "cutoff_year"]},
+            "origin": row["origin"],
+            "origin_year": None if clean(row["origin_year"]) is None else int(row["origin_year"]),
+            "secondary_origin": clean(row["secondary_origin"]), "grade": row["grade"],
+            "quote": clean(row["quote"]) or "", "sources": list(row["sources"]),
+            "source_years": list((row["parsed_output"] or {}).get("source_years", [])),
+            "records": [x for x in records if x["record_id"] in cited], "label_decision_id": int(row["llm_decision_id"])}
 
 
 def check(args) -> None:

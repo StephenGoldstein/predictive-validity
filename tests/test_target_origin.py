@@ -392,3 +392,17 @@ def test_schemas_express_nullable_enums_with_anyof():
         assert sec["anyOf"] == [{"type": "string", "enum": to.ORIGINS}, {"type": "null"}]
         for prop in schema["properties"].values():
             assert None not in prop.get("enum", [])
+
+
+def test_check_payload_has_no_nan():
+    import json
+    import numpy as np
+    row = {"ensembl_id": "ENSG1", "mondo_id": "MONDO:1", "origin": "diseased_tissue", "origin_year": 1999.0,
+           "secondary_origin": np.nan, "grade": "stated", "quote": np.nan, "sources": ["PMID:1"], "llm_decision_id": 7,
+           "parsed_output": {"source_years": [1999]}}
+    base = {"ensembl_id": "ENSG1", "mondo_id": "MONDO:1", "symbol": "TNF", "disease": "RA", "cutoff_year": 2008}
+    p = to.check_payload(row, base, [{"record_id": "PMID:1", "year": 1999, "title": "T", "abstract": None},
+                                     {"record_id": "PMID:2", "year": 2000, "title": "U", "abstract": "x"}])
+    assert p["secondary_origin"] is None and p["quote"] == "" and p["origin_year"] == 1999
+    assert [r["record_id"] for r in p["records"]] == ["PMID:1"] and p["label_decision_id"] == 7
+    json.dumps(p, allow_nan=False)
