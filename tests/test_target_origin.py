@@ -537,3 +537,9 @@ def test_gene_names_drop_disease_labels_that_hgnc_lists_as_aliases():
     names = to.gene_names("AR", hgnc(symbol="AR", name="androgen receptor"), None, protein,
                           exclude={"kennedy disease", "spinal and bulbar muscular atrophy"})
     assert names == ["androgen receptor"]
+
+
+def test_checker_v3_has_the_labellers_search_and_fetch():
+    assert to.CHECK_TASK.prompt_version == "v3"
+    assert [t["name"] for t in to.CHECK_TASK.tools] == ["web_search", "web_fetch"]
+    assert "search" in to.CHECK_SYSTEM.lower()

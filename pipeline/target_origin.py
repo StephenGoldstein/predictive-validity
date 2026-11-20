@@ -647,8 +647,8 @@ def label(args) -> None:
 
 # --- check ---
 
-CHECK_SYSTEM = f"""You verify one label of what first proposed a drug target for a disease. You are given the label (origin, grade, quote, sources with the years the labeller gave), the cutoff year, the full text of every cited record that was among the records shown to the labeller, and the category definitions. For a cited URL, fetch it. Answer three questions.
-quote_found: yes if the quote, or the sentence it closely paraphrases, is in a cited source; no if it is not; could_not_open if a cited URL could not be fetched and no shown record carries the quote. A cited PubMed or Europe PMC URL is shown to you as a record (its url is given); read the record rather than fetching the page.
+CHECK_SYSTEM = f"""You verify one label of what first proposed a drug target for a disease. You are given the label (origin, grade, quote, sources with the years the labeller gave), the cutoff year, the full text of every cited record that was among the records shown to the labeller, and the category definitions. For a cited URL, fetch it; if the page cannot be fetched, search for the same source elsewhere (the journal's site, PubMed Central, Europe PMC, a preprint or patent host) and read it there, since the labeller read it somewhere. Answer three questions.
+quote_found: yes if the quote, or the sentence it closely paraphrases, is in a cited source; no if it is not; could_not_open only if no copy of a cited source could be fetched or found by search and no shown record carries the quote. A cited PubMed or Europe PMC URL is shown to you as a record (its url is given); read the record rather than fetching the page, and fetch the full text only if the quote is not in the abstract.
 year_ok: yes if every cited source's own date (the publication year it shows) is before the cutoff year; no if any is in or after it; unknown if a cited URL's date could not be read.
 origin_follows: yes if the quoted passage supports the origin category under its definition; partly if it supports the category only together with the other sources, or supports a neighbouring category as well; no if it does not support it.
 note: one sentence.
@@ -664,7 +664,8 @@ CHECK_SCHEMA = {
                    "note": {"type": "string"}},
     "required": ["quote_found", "year_ok", "origin_follows", "note"],
 }
-CHECK_TOOLS = [{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 4, "blocked_domains": BLOCKED_DOMAINS}]
+# v3: the labeller's search and fetch, after a fetch-only checker (v2) could not open 18 of the 35 labels it rejected
+CHECK_TOOLS = TOOLS
 CHECK_METHOD = "target_origin_check@v1"
 
 
@@ -684,12 +685,12 @@ def render_check(p: dict) -> str:
 
 
 CHECK_CONTEXT = ("label_decision_id",)  # the row's provenance, not what the checker reads
-CHECK_TASK = llm.Task(name="target_origin_check", prompt_version="v2", schema_version="v1", system=CHECK_SYSTEM,
+CHECK_TASK = llm.Task(name="target_origin_check", prompt_version="v3", schema_version="v1", system=CHECK_SYSTEM,
                       schema=CHECK_SCHEMA, render=render_check, validate=None, subject_type="target_disease",
                       model="claude-sonnet-5-5", effort="medium", max_tokens=4000, tools=CHECK_TOOLS)
 
 CHECK_DESCRIPTION = f"""For each graded labelled row of {LABEL_METHOD}: task {CHECK_TASK.name} {CHECK_TASK.prompt_version}
-({CHECK_TASK.model}, web fetch only) reads the label, its quote and sources, and the full text of the cited records,
+({CHECK_TASK.model}, web search and fetch) reads the label, its quote and sources, and the full text of the cited records,
 and says whether the quote is in a source, whether every source is dated before the cutoff year, and whether the
 origin follows. supported: all three hold (origin_follows yes or partly); unsupported: any is no; unverified: a URL
 could not be opened or dated and nothing is no. An unsupported or unverified row is rewritten as unclear (grade none,
