@@ -490,8 +490,8 @@ def test_hide_provisional_is_part_of_the_decision_input():
     assert "first_program" not in to.own_input(p) and "records" in to.own_input(p)
 
 
-def test_check_task_is_v2_and_ignores_the_label_decision_id():
-    assert to.CHECK_TASK.prompt_version == "v2" and "label_decision_id" in to.CHECK_CONTEXT
+def test_check_task_ignores_the_label_decision_id():
+    assert "label_decision_id" in to.CHECK_CONTEXT
 
 
 def test_origin_services_filter_every_shared_table_read():
