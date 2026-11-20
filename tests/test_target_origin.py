@@ -530,3 +530,10 @@ def test_sample_refuses_to_overwrite_without_force():
     from pipeline import target_disease
     ap = target_disease.parser()
     assert ap.parse_args(["sample"]).force is False and ap.parse_args(["sample", "--force"]).force is True
+
+
+def test_gene_names_drop_disease_labels_that_hgnc_lists_as_aliases():
+    protein = ["Androgen receptor", "Kennedy disease", "spinal and bulbar muscular atrophy"]
+    names = to.gene_names("AR", hgnc(symbol="AR", name="androgen receptor"), None, protein,
+                          exclude={"kennedy disease", "spinal and bulbar muscular atrophy"})
+    assert names == ["androgen receptor"]

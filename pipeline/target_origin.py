@@ -139,11 +139,14 @@ def protein_names(symbol: str, uniprot_ids: list[str]) -> list[str]:
     return names
 
 
-def gene_names(symbol: str, hgnc: pd.DataFrame, target_name: str | None, protein: list[str] = ()) -> list[str]:
-    """The symbol first, always; then the HGNC name, the target name and the protein names (UniProt, HGNC alias and
-    previous names) that pass name_usable, then previous and alias symbols that pass pipeline.literature.usable; at
-    most MAX_GENE_NAMES."""
-    names = [n for n in [*(hgnc.name if not hgnc.empty else []), target_name, *protein] if n and name_usable(n)]
+def gene_names(symbol: str, hgnc: pd.DataFrame, target_name: str | None, protein: list[str] = (),
+               exclude: set[str] = frozenset()) -> list[str]:
+    """The symbol first (when four characters or longer, or the only name); then the HGNC name, the target name and
+    the protein names (UniProt, HGNC alias and previous names) that pass name_usable and are not in exclude (lower-
+    cased disease labels: HGNC lists "Kennedy disease" as an alias name of AR), then previous and alias symbols that
+    pass pipeline.literature.usable; at most MAX_GENE_NAMES."""
+    names = [n for n in [*(hgnc.name if not hgnc.empty else []), target_name, *protein]
+             if n and name_usable(n) and n.lower() not in exclude]
     aliases: list[str] = []
     for r in hgnc.itertuples():
         aliases += list(r.prev_symbols or []) + list(r.alias_symbols or [])
@@ -261,7 +264,9 @@ def pair_names(ensembl_id: str, symbol: str, mondo_id: str, labels: dict[str, st
     term = frame.query("SELECT label, synonyms FROM preclin.ontology_term WHERE term_id = %s", (mondo_id,))
     label = term.label[0] if len(term) else labels.get(mondo_id, mondo_id)
     synonyms = list(term.synonyms[0] or []) if len(term) else []
-    return gene_names(symbol, hgnc, target_name, protein_names(symbol, accessions)), disease_names(label, synonyms)
+    diseases = {x.lower() for x in labels.values()}
+    return (gene_names(symbol, hgnc, target_name, protein_names(symbol, accessions), exclude=diseases),
+            disease_names(label, synonyms))
 
 
 def search_pair(cur, row, labels: dict[str, str], max_records: int | None) -> tuple[int, int, int]:
