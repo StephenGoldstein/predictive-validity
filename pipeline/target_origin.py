@@ -323,7 +323,7 @@ LABEL_SCHEMA = {
     "properties": {
         "origin": {"type": "string", "enum": ORIGINS},
         "origin_year": {"type": ["integer", "null"]},
-        "secondary_origin": {"type": ["string", "null"], "enum": [*ORIGINS, None]},
+        "secondary_origin": {"anyOf": [{"type": "string", "enum": ORIGINS}, {"type": "null"}]},
         "grade": {"type": "string", "enum": GRADES},
         "quote": {"type": "string"},
         "sources": {"type": "array", "items": {"type": "string"}},
@@ -693,7 +693,7 @@ SOURCE. For a graded label, exactly one record id from those given, with the yea
 BLIND_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {"origin": {"type": "string", "enum": ORIGINS},
-                   "secondary_origin": {"type": ["string", "null"], "enum": [*ORIGINS, None]},
+                   "secondary_origin": {"anyOf": [{"type": "string", "enum": ORIGINS}, {"type": "null"}]},
                    "grade": {"type": "string", "enum": GRADES},
                    "quote": {"type": "string"},
                    "source": {"type": ["string", "null"]},
