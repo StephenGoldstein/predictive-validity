@@ -347,17 +347,28 @@ def search(args) -> None:
 
 DEFINITIONS = """- human_genetics: germline variants link the target to the disease (GWAS, gene burden, Mendelian)
 - tumour_genetics: the gene is recurrently mutated in the cancer
-- diseased_tissue: the gene's RNA level differs in diseased tissue
+- diseased_tissue: the gene's RNA or protein level differs in diseased tissue
 - mouse_genetics: knocked-out or mutant mice show the disease
 - curated_pathway: a curated pathway shows a disease mutation disrupting the target
-- cell_screen: a gene-knockout screen in cells
-- earlier_drug_other_disease: a drug on the target was approved for another disease
-- observational_biomarker: the target or its product tracks the disease in patients
+- cell_screen: a gene-knockout screen in human cells
+- earlier_drug_other_disease: a drug on the target was approved for an unrelated disease
+- observational_biomarker: the target or its product in patients' blood, another fluid or on imaging tracks the disease
 - human_cell_perturbation: perturbing the target in human cells or tissue changes a disease phenotype
-- animal_model_pharmacology: modulating the target in an animal disease model changes it
+- animal_model_pharmacology: modulating the target by means other than genetics changes an animal model of the disease
 - clinical_observation: an effect seen in people, such as a side effect
 - phenotypic_screen: a molecule found without a target hypothesis came first
 - unclear: no source settles it"""
+
+# The evidence chart's line that each origin kind answers "present before entry?" for (report.evidence_lines; the
+# owner's one-list decision of 2026-11-20 on #146): one list of target-evidence kinds, used two ways. None: no chart
+# line. The CHART_LINE_PENDING kinds get their lines from #154, under these names.
+CHART_LINE = {"human_genetics": "g3", "tumour_genetics": "somatic", "diseased_tissue": "expression",
+              "mouse_genetics": "altered_animal", "curated_pathway": "reactome", "cell_screen": "crispr",
+              "earlier_drug_other_disease": "approved_unrelated_only", "observational_biomarker": None,
+              "human_cell_perturbation": None, "animal_model_pharmacology": None, "clinical_observation": None,
+              "phenotypic_screen": None, "unclear": None}
+CHART_LINE_PENDING = ("observational_biomarker", "human_cell_perturbation", "animal_model_pharmacology",
+                      "clinical_observation")
 
 GRADE_RULE = """stated: a source says why the target was chosen for the disease (a rationale in an introduction or discussion, a
 review written before the cutoff, a patent's background). pattern: no source says so, but a source shows the defining
@@ -495,7 +506,7 @@ def validate_label(p: dict, out: dict) -> None:
         _check_sources(p, out["route_sources"], out["route_source_years"], retrieved, "route")
 
 
-LABEL_TASK = llm.Task(name="target_origin", prompt_version="v1", schema_version="v1", system=LABEL_SYSTEM,
+LABEL_TASK = llm.Task(name="target_origin", prompt_version="v2", schema_version="v1", system=LABEL_SYSTEM,
                       schema=LABEL_SCHEMA, render=render_label, validate=validate_label, subject_type="target_disease",
                       model="claude-opus-5-5", effort="medium", max_tokens=16000, tools=TOOLS)
 
@@ -888,7 +899,7 @@ def validate_blind(p: dict, out: dict) -> None:
         raise ValueError(f"source year {out['source_year']} is not before the cutoff year {p['cutoff_year']}")
 
 
-BLIND_TASK = llm.Task(name="target_origin_blind_read", prompt_version="v2", schema_version="v1", system=BLIND_SYSTEM,
+BLIND_TASK = llm.Task(name="target_origin_blind_read", prompt_version="v3", schema_version="v1", system=BLIND_SYSTEM,
                       schema=BLIND_SCHEMA, render=render_blind, validate=validate_blind, subject_type="target_disease",
                       model="claude-opus-5-5", effort="medium", max_tokens=16000, tools=TOOLS)
 
@@ -1177,11 +1188,14 @@ GATE_JSON = os.path.join(frame.REPO, "report", "audits", "target_origin_gate.jso
 GATE_METHOD = "target_origin_pilot@v1"
 GATE_DESCRIPTION = f"""Pilot gates of the origin labelling (#146 step 4, registered 2026-11-19; reference changed to a
 blind model reading by the owner's decision the same day). Agreement: Cohen's kappa between the reference origin (the
-majority of {BLIND_REPLICATES} blind readings, or a human reader's sheet when one is given) and the stored origin after
-the second-model check, over the 13 categories, on one hand-check set; must be at least {KAPPA_MIN}. Coverage: the share of pilot pairs with at least one pre-entry record,
-in the group with a settled "not causal" stop and the group without; the gap must be at most {GAP_MAX} points. Also
-reported, never gating: kappa on the labeller's raw origin, both on the collapsed layer, agreement with the labeller's
-primary or secondary origin, and the blind second coder's kappa against the reader and the labeller."""
+majority of {BLIND_REPLICATES} blind readings, or a human reader's sheet when one is given) and the labeller's origin as
+read, before the second-model check (the registered wording, "against a blind hand check"; decision of 2026-11-20), over
+the 13 categories, on one hand-check set; must be at least {KAPPA_MIN}. Coverage: the share of pilot pairs with at least
+one pre-entry record, in the group with a settled "not causal" stop and the group without; the gap must be at most
+{GAP_MAX} points. Also reported, never gating: kappa on the stored origin after the check (the check is a filter on what
+enters the tests, and its outcome rates are reported as such), both kappas on the collapsed reporting layer (LAYER),
+agreement with the labeller's primary or secondary origin, and the blind second coder's kappa against the reader and
+the labeller."""
 
 
 def kappa(a: pd.Series, b: pd.Series) -> float | None:
@@ -1199,7 +1213,8 @@ def gate_result(reader: pd.DataFrame, stored: pd.DataFrame, raw: pd.DataFrame, c
     """The gate statistics for one hand-check set. reader: ensembl_id, mondo_id, origin; stored: the same after the
     check; raw: the labeller's origin and secondary_origin; coverage: group -> share of pairs with a record; blind:
     ensembl_id, mondo_id, blind_origin, or None; covered: the pairs with at least one record, for the stratified
-    kappas. A pair the reader decided and the labeller did not counts as unclear on the labeller's side."""
+    kappas. A pair the reader decided and the labeller did not counts as unclear on the labeller's side. The gate is
+    scored on the labeller's origin as read (gate_origin "raw"); the stored origin after the check is reported."""
     on = ["ensembl_id", "mondo_id"]
     m = reader[on + ["origin"]].merge(stored[on + ["origin"]].rename(columns={"origin": "stored"}), on=on, how="left") \
         .merge(raw[on + ["origin", "secondary_origin"]].rename(columns={"origin": "raw"}), on=on, how="left")
@@ -1224,7 +1239,8 @@ def gate_result(reader: pd.DataFrame, stored: pd.DataFrame, raw: pd.DataFrame, c
         out["kappa_blind_vs_reader"] = kappa(b.origin, b.blind_origin)
         out["kappa_blind_vs_raw"] = kappa(b.raw, b.blind_origin)
         out["n_blind"] = len(b)
-    out["pass"] = bool(out["kappa_stored"] is not None and out["kappa_stored"] >= kappa_min and gap <= gap_max)
+    out["gate_origin"] = "raw"
+    out["pass"] = bool(out["kappa_raw"] is not None and out["kappa_raw"] >= kappa_min and gap <= gap_max)
     return out
 
 
@@ -1240,15 +1256,6 @@ def coverage_by_group() -> dict[str, float]:
     pilot["covered"] = [(e, m) in have for e, m in zip(pilot.ensembl_id, pilot.mondo_id)]
     return pilot.groupby("group").covered.mean().to_dict()
 
-
-def decision_origins(task: str, column: str) -> pd.DataFrame:
-    d = llm.latest_decisions(task, "v1")
-    if d.empty:
-        return pd.DataFrame(columns=["ensembl_id", "mondo_id", column, "secondary_origin"])
-    d[["ensembl_id", "mondo_id"]] = pd.DataFrame([split_key(k) for k in d.key], index=d.index)
-    d[column] = [o["origin"] for o in d.parsed_output]
-    d["secondary_origin"] = [o.get("secondary_origin") for o in d.parsed_output]
-    return d[["ensembl_id", "mondo_id", column, "secondary_origin"]]
 
 
 def blind_reference(keys: set[str] | None = None) -> tuple[pd.DataFrame, dict]:

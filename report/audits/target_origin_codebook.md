@@ -11,14 +11,14 @@ model's answer.
 
 - human_genetics: germline variants link the target to the disease (GWAS, gene burden, Mendelian)
 - tumour_genetics: the gene is recurrently mutated in the cancer
-- diseased_tissue: the gene's RNA level differs in diseased tissue
+- diseased_tissue: the gene's RNA or protein level differs in diseased tissue
 - mouse_genetics: knocked-out or mutant mice show the disease
 - curated_pathway: a curated pathway shows a disease mutation disrupting the target
-- cell_screen: a gene-knockout screen in cells
-- earlier_drug_other_disease: a drug on the target was approved for another disease
-- observational_biomarker: the target or its product tracks the disease in patients
+- cell_screen: a gene-knockout screen in human cells
+- earlier_drug_other_disease: a drug on the target was approved for an unrelated disease
+- observational_biomarker: the target or its product in patients' blood, another fluid or on imaging tracks the disease
 - human_cell_perturbation: perturbing the target in human cells or tissue changes a disease phenotype
-- animal_model_pharmacology: modulating the target in an animal disease model changes it
+- animal_model_pharmacology: modulating the target by means other than genetics changes an animal model of the disease
 - clinical_observation: an effect seen in people, such as a side effect
 - phenotypic_screen: a molecule found without a target hypothesis came first
 - unclear: no source settles it
@@ -27,6 +27,41 @@ The origin is the kind of evidence that first proposed the pair, not the stronge
 the sources show two kinds, the earlier is the origin and the other goes in secondary_origin. The provisional origin
 shown on each card is the earliest dated item in the evidence databases; the model saw it too. Confirm or correct it
 from the sources; do not copy it without a source.
+
+Two boundaries the definitions draw. A change in the diseased tissue itself (RNA or protein, against normal tissue) is
+diseased_tissue; a measurement outside it (blood, another fluid, imaging) that tracks the disease's presence,
+activity or course is observational_biomarker. A drug on the target approved for a related disease makes the pair
+validated at entry, which is not an origin; earlier_drug_other_disease is an approval for an unrelated disease.
+
+## Crosswalk to the evidence chart
+
+The thirteen kinds are one list used two ways (the owner's decision of 2026-11-20 on #146): the report's evidence
+chart (`report/evidence_lines.py`) asks whether each kind was present before entry, the origin asks which came first.
+`pipeline.target_origin.CHART_LINE` holds the mapping; a test checks that every named column exists in the chart.
+
+| origin | chart line (column) | the chart's wording |
+|---|---|---|
+| human_genetics | `g3` | inherited variants link the target to the disease (tiers: rare only, common only, both) |
+| tumour_genetics | `somatic` | the gene is recurrently mutated in this cancer |
+| curated_pathway | `reactome` | a curated pathway shows a disease mutation disrupting the target |
+| diseased_tissue | `expression` | the gene's RNA level differs in diseased tissue; #154 adds the protein in patients' tissue |
+| mouse_genetics | `altered_animal` | knocked-out or mutant mice show the disease |
+| cell_screen | `crispr` | gene-knockout screens in human cells (registered line, to be drawn) |
+| earlier_drug_other_disease | `approved_unrelated_only` | a drug on the target approved only for unrelated diseases |
+| observational_biomarker | #154, fourth kind | its level tracking the disease in observational studies |
+| human_cell_perturbation | #154, first kind | the target perturbed in human cells or tissue |
+| animal_model_pharmacology | #154, second kind | the target perturbed in an animal disease model by means other than genetics |
+| clinical_observation | #154, new line | an effect seen in people, such as a side effect |
+| phenotypic_screen | none | not evidence about the target |
+| unclear | none | |
+
+## Reporting layers
+
+For reporting only, never for a gate or a hypothesis, `pipeline.target_origin.LAYER` collapses the thirteen kinds into
+six: genetics (human_genetics, tumour_genetics); tissue_biomarker (diseased_tissue, observational_biomarker);
+model_systems (mouse_genetics, curated_pathway, cell_screen, human_cell_perturbation, animal_model_pharmacology);
+earlier_drug (earlier_drug_other_disease); clinical_phenotypic (clinical_observation, phenotypic_screen); unclear. The
+gate file reports kappa on this layer beside the thirteen-way kappa.
 
 ## Grade
 

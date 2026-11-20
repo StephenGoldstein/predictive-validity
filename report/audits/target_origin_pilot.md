@@ -163,11 +163,30 @@ Collapsed-layer κ on set b: 0.45 stored. No pair is missing a label.
   ≥ 0.6 against a blind hand check of 50" and is silent on the check). On the labeller's label as read, the gate
   passes; on the stored origin it fails.
 
-## Decisions for the owner (none taken)
+## Decisions (2026-11-20)
 
-1. Score the agreement gate on the labeller's label as read, and report the check's outcome rates as the filter they
-   are. Under that reading the pilot passes both gates (set b: κ 0.70, gap 8).
-2. Give the checker the labeller's web search and fetch (checker v3) so it reads what the labeller read, and re-check
-   the 90 graded labels (about 90 Sonnet calls); keep the registered sensitivity that counts unverified rows as labelled.
+Both taken on 2026-11-20 and posted on #146 for the owner to object to: (1) the agreement gate is scored on the
+labeller's label as read, the registered wording, and the check's outcome rates are reported as the filter they are
+(`gate_origin` in the gate file; the stored-origin κ stays beside it); (2) checker v3, with the labeller's search and
+fetch, re-checks the graded labels. Neither is a revision of the labeller's prompt.
 
-Neither is a revision of the labeller's prompt. The full run waits for the owner's decision and an announcement.
+# Definitions aligned with the evidence chart (2026-11-20)
+
+The owner's one-list decision of 2026-11-20 (#146): the thirteen origin kinds and the evidence chart's lines are one
+list, so each kind is defined the way its chart line is. Against `report/evidence_lines.py`, nine definitions matched
+and four were redefined: cell_screen is a screen in human cells (the chart's `crispr` line); earlier_drug_other_disease
+is an approval for an unrelated disease (`approved_unrelated_only`; a related-disease approval is the hub's
+`validated_at_entry`); diseased_tissue covers RNA and protein in the tissue (the `expression` line plus #154's
+protein-in-tissue kind) and observational_biomarker is a measurement in blood, another fluid or imaging (#154's
+tracking kind); animal_model_pharmacology says non-genetic (#154's second kind). The crosswalk is
+`pipeline.target_origin.CHART_LINE` with a test, and a table in the codebook; migration 145 restates the column
+comment.
+
+What the change can touch in the pilot: no v1 label or v2 blind reading was cell_screen, and no pilot pair is
+validated at entry, so the first two cannot move a label. The tissue boundary can: 6 of the 12 diseased_tissue labels
+rest on protein or staining evidence, and 9 of the 13 observational_biomarker labels mention protein, serum, plasma,
+CSF or urine; the pilot's boundary between the two was fuzzy. Both kinds are on the same side of O1. The definitions
+sit in all three prompts, so the labeller is v2, the blind reader v3 and the checker stays v3 (no v3 decision exists).
+The pilot is relabelled under the aligned prompts before the full run, so that the gate is scored on the prompt the
+full run uses; the v1 labels and v2 readings stay on record, and v1 to v2 agreement on the 100 pairs is reported. This
+is the owner's definition change, not the registered single prompt revision, which stays unused.

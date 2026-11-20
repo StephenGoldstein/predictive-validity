@@ -435,8 +435,8 @@ def test_gene_names_merge_protein_names_after_the_symbol_and_name():
     assert len({n.lower() for n in names}) == len(names) and len(names) <= to.MAX_GENE_NAMES
 
 
-def test_blind_reader_v2_may_cite_a_retrieved_url_before_the_cutoff():
-    assert to.BLIND_TASK.prompt_version == "v2" and to.BLIND_TASK.tools
+def test_blind_reader_may_cite_a_retrieved_url_before_the_cutoff():
+    assert to.BLIND_TASK.tools
     base = {"origin": "clinical_observation", "secondary_origin": None, "grade": "stated", "quote": "q",
             "source": URL, "source_year": 2005, "note": "", "retrieved_urls": [URL]}
     to.validate_blind(blind_payload(), base)
@@ -543,3 +543,51 @@ def test_checker_v3_has_the_labellers_search_and_fetch():
     assert to.CHECK_TASK.prompt_version == "v3"
     assert [t["name"] for t in to.CHECK_TASK.tools] == ["web_search", "web_fetch"]
     assert "search" in to.CHECK_SYSTEM.lower()
+
+
+# --- the definitions follow the evidence chart's lines (owner's one-list decision of 2026-11-20, #146) ---
+
+def definition_of(origin: str) -> str:
+    lines = [ln for ln in to.DEFINITIONS.splitlines() if ln.startswith(f"- {origin}: ")]
+    assert len(lines) == 1
+    return lines[0]
+
+
+def test_every_origin_has_one_definition_and_a_chart_line_entry():
+    assert [ln[2:].split(":")[0] for ln in to.DEFINITIONS.splitlines()] == to.ORIGINS
+    assert set(to.CHART_LINE) == set(to.ORIGINS)
+    assert set(to.CHART_LINE_PENDING) == {"observational_biomarker", "human_cell_perturbation",
+                                          "animal_model_pharmacology", "clinical_observation"}
+    without = {o for o, c in to.CHART_LINE.items() if c is None}
+    assert without == set(to.CHART_LINE_PENDING) | {"phenotypic_screen", "unclear"}
+
+
+def test_chart_line_columns_exist_in_the_evidence_chart():
+    from report import evidence_lines as ev
+    columns = {ln.column for line, tiers in ev.CATEGORIES.values() for ln in (line, *tiers)}
+    columns |= {ln.column for ln in ev.area_lines()}
+    assert to.CHART_LINE["cell_screen"] == "crispr"
+    assert to.CHART_LINE["earlier_drug_other_disease"] == "approved_unrelated_only"
+    assert to.CHART_LINE["diseased_tissue"] == "expression" and to.CHART_LINE["mouse_genetics"] == "altered_animal"
+    assert all(c in columns for c in to.CHART_LINE.values() if c is not None)
+
+
+def test_definitions_use_the_chart_lines_wording():
+    assert "human cells" in definition_of("cell_screen")
+    assert "unrelated disease" in definition_of("earlier_drug_other_disease")
+    assert "RNA or protein" in definition_of("diseased_tissue")
+    assert "blood" in definition_of("observational_biomarker")
+    assert "other than genetics" in definition_of("animal_model_pharmacology")
+    # the texts that produced the v1 labels and the v2 blind readings are gone, so those versions cannot be reused
+    assert to.LABEL_TASK.prompt_version != "v1" and to.BLIND_TASK.prompt_version != "v2"
+
+
+def test_gate_is_scored_on_the_labellers_label_as_read():
+    reader, stored, raw = gate_frames(disagree=0)
+    rewritten = stored.copy()
+    rewritten.loc[:29, "origin"] = "unclear"  # the check rewrote 30 labels the reference agreed with
+    r = to.gate_result(reader, rewritten, raw, {"not_causal": 0.8, "other": 0.9}, None)
+    assert r["kappa_raw"] == 1.0 and r["kappa_stored"] < 0.6 and r["pass"] is True and r["gate_origin"] == "raw"
+    reader, stored, raw = gate_frames(disagree=30)
+    r = to.gate_result(reader, reader, raw, {"not_causal": 0.8, "other": 0.9}, None)  # stored agrees, the label did not
+    assert r["kappa_stored"] == 1.0 and r["pass"] is False
