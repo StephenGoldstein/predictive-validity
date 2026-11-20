@@ -247,3 +247,62 @@ def test_render_blind_shows_no_provisional_origin_and_no_program():
     text = to.render_blind(blind_payload())
     assert "PMID:1" in text and "2007 or earlier" in text
     assert "PROVISIONAL" not in text and "PROGRAM" not in text and "mouse_genetics" not in text
+
+
+# --- pilot sample and reader package ---
+
+def cohort_and_modes(n: int = 300):
+    cohort = pd.DataFrame({"ensembl_id": [f"ENSG{i:04d}" for i in range(n)], "mondo_id": ["MONDO:1"] * n})
+    modes = []
+    for i in range(n):
+        if i % 3 == 0:
+            modes.append((f"ENSG{i:04d}", "MONDO:1", "not_causal"))
+        if i % 5 == 0:
+            modes.append((f"ENSG{i:04d}", "MONDO:1", "unresolved"))
+        if i % 7 == 0:
+            modes.append((f"ENSG{i:04d}", "MONDO:1", "drug_fell_short"))
+    return cohort, pd.DataFrame(modes, columns=["ensembl_id", "mondo_id", "mode"])
+
+
+def test_sample_excludes_unresolved_and_splits_sets():
+    cohort, modes = cohort_and_modes()
+    s = to.sample_pairs(cohort, modes, seed=to.PILOT_SEED)
+    assert list(s.columns) == ["ensembl_id", "mondo_id", "group", "hand_check_set"]
+    assert s.group.value_counts().to_dict() == {"not_causal": 50, "other": 50}
+    assert s.groupby(["group", "hand_check_set"]).size().to_dict() == {("not_causal", "a"): 25, ("not_causal", "b"): 25,
+                                                                       ("other", "a"): 25, ("other", "b"): 25}
+    assert s.ensembl_id.is_unique
+    unresolved = set(modes[modes["mode"] == "unresolved"].ensembl_id)
+    assert not set(s.ensembl_id) & unresolved
+    nc = set(modes[modes["mode"] == "not_causal"].ensembl_id)
+    assert set(s[s.group == "not_causal"].ensembl_id) <= nc
+    assert not set(s[s.group == "other"].ensembl_id) & nc
+    again = to.sample_pairs(cohort, modes, seed=to.PILOT_SEED)
+    assert again.equals(s)
+    assert not to.sample_pairs(cohort, modes, seed=1).equals(s)
+
+
+def test_sample_takes_fewer_when_a_group_is_small():
+    cohort, modes = cohort_and_modes(40)
+    s = to.sample_pairs(cohort, modes, seed=to.PILOT_SEED)
+    nc = s[s.group == "not_causal"]
+    assert 0 < len(nc) < 50 and set(nc.hand_check_set) <= {"a", "b"}
+
+
+def package_rows() -> list[dict]:
+    p = label_payload()
+    return [{**p, "hand_check_set": "a", "group": "other"},
+            {**p, "ensembl_id": "ENSG2", "symbol": "IL6", "gene_name": "interleukin 6", "mondo_id": "MONDO:2",
+             "disease": "asthma", "hand_check_set": "a", "group": "not_causal",
+             "records": [{"record_id": "PMID:77", "year": 1990, "title": "Unique title seven", "abstract": "z",
+                          "rank": 1}], "n_records_total": 1}]
+
+
+def test_package_holds_every_pair_and_no_label():
+    html = to.render_package(package_rows(), "# Codebook\n\nDefinitions here.", "a")
+    assert "ENSG1|MONDO:1" in html and "ENSG2|MONDO:2" in html
+    assert "Unique title seven" in html and "pubmed.ncbi.nlm.nih.gov/77" in html
+    assert "patents.google.com" in html and "before=priority:20080101" in html
+    assert "Definitions here." in html and "mouse_genetics" in html  # the provisional origin the model also saw
+    assert "retrieved_urls" not in html and "labelled" not in html and "diseased_tissue</option>" in html
+    assert "<title>Target origin hand check" in html and len(html.encode()) < 16_000_000

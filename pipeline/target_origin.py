@@ -753,6 +753,249 @@ def blind(args) -> None:
     log(f"pairs={len(items)} decided={len(decided)} run={run_id} (labels sealed until gate runs with the reader's sheet)")
 
 
+# --- pilot sample ---
+
+PILOT_SEED = 20261119
+PILOT_PER_GROUP = 50
+SET_PER_GROUP = 25
+SAMPLE_METHOD = "target_origin_pilot_sample@v1"
+SAMPLE_DESCRIPTION = f"""Pilot of the origin labelling (#146 step 4). Frame: pairs first entered in
+{SECTION1[0].year}-{SECTION1[1].year}, not validated at entry, with no engaged-without-benefit stop filed as unresolved
+(#158: the 102 contradicted "not causal" verdicts are unresolved, so neither group draws on them). Group not_causal:
+pairs with at least one stop of mode not_causal (report.engaged_modes); group other: the rest. Seed {PILOT_SEED}:
+{PILOT_PER_GROUP} per group, then {SET_PER_GROUP} of each group to hand-check set a and the rest to set b, disjoint."""
+
+
+def sample_pairs(cohort: pd.DataFrame, stop_modes: pd.DataFrame, seed: int) -> pd.DataFrame:
+    """The pilot sample: ensembl_id, mondo_id, group (not_causal | other), hand_check_set (a | b)."""
+    import numpy as np
+    pairs = sorted(set(zip(cohort.ensembl_id, cohort.mondo_id)))
+    modes = stop_modes[stop_modes.set_index(["ensembl_id", "mondo_id"]).index.isin(pairs)]
+    unresolved = set(zip(*[modes[modes["mode"] == "unresolved"][c] for c in ["ensembl_id", "mondo_id"]]))
+    not_causal = set(zip(*[modes[modes["mode"] == "not_causal"][c] for c in ["ensembl_id", "mondo_id"]]))
+    candidates = [p for p in pairs if p not in unresolved]
+    rng = np.random.default_rng(seed)
+    out = []
+    for group, members in [("not_causal", [p for p in candidates if p in not_causal]),
+                           ("other", [p for p in candidates if p not in not_causal])]:
+        idx = rng.choice(len(members), size=min(PILOT_PER_GROUP, len(members)), replace=False)
+        chosen = [members[i] for i in sorted(idx)]
+        set_a = set(rng.choice(len(chosen), size=min(SET_PER_GROUP, len(chosen)), replace=False).tolist())
+        out += [(e, m, group, "a" if i in set_a else "b") for i, (e, m) in enumerate(chosen)]
+    return pd.DataFrame(out, columns=["ensembl_id", "mondo_id", "group", "hand_check_set"])
+
+
+def stop_modes() -> pd.DataFrame:
+    """Every engaged-without-benefit stop's failure mode, keyed to its pair: ensembl_id, mondo_id, mode."""
+    from pipeline.target_history import targets
+    from report.engaged_modes import engaged_modes
+    m = engaged_modes()
+    t = targets()[["moiety_id", "ens"]].drop_duplicates()
+    d = m.merge(t, on="moiety_id").rename(columns={"ens": "ensembl_id"})
+    return d[["ensembl_id", "mondo_id", "mode"]]
+
+
+def sample(_args) -> None:
+    hub = pair_frame("window")
+    cohort = hub[~hub.validated_at_entry]
+    modes = stop_modes()
+    s = sample_pairs(cohort, modes, PILOT_SEED)
+    s = s.merge(hub[["ensembl_id", "mondo_id", "symbol", "cutoff_year"]], on=["ensembl_id", "mondo_id"])
+    labels = mondo_labels()
+    s["disease"] = s.mondo_id.map(labels)
+    s = s[["ensembl_id", "mondo_id", "symbol", "disease", "cutoff_year", "group", "hand_check_set"]]
+    s.to_csv(PILOT_CSV, index=False)
+    in_cohort = modes.merge(cohort[["ensembl_id", "mondo_id"]], on=["ensembl_id", "mondo_id"])
+    unresolved = in_cohort[in_cohort["mode"] == "unresolved"][["ensembl_id", "mondo_id"]].drop_duplicates()
+    settled = cohort.merge(unresolved, on=["ensembl_id", "mondo_id"], how="left", indicator=True)
+    settled = settled[settled._merge == "left_only"]
+    nc = in_cohort[in_cohort["mode"] == "not_causal"][["ensembl_id", "mondo_id"]].drop_duplicates()
+    nc_settled = settled.merge(nc, on=["ensembl_id", "mondo_id"])
+    with llm.connect() as conn, conn.cursor() as cur:
+        llm.record_method(cur, SAMPLE_METHOD, "Pilot sample of the origin labelling", SAMPLE_DESCRIPTION,
+                          ["preclin.target_disease", "preclin.stop_target_history", "report.engaged_modes"],
+                          {"seed": PILOT_SEED, "per_group": PILOT_PER_GROUP, "set_per_group": SET_PER_GROUP,
+                           "cohort": len(cohort), "excluded_unresolved": len(unresolved),
+                           "frame_not_causal": len(nc_settled), "frame_other": int(len(settled) - len(nc_settled)),
+                           "drawn": s.groupby("group").size().to_dict()})
+        conn.commit()
+    log(f"cohort {len(cohort):,} pairs in the window and not validated; {len(unresolved):,} excluded for an unresolved "
+        f"stop; frame not_causal {len(nc_settled):,}, other {len(settled) - len(nc_settled):,}; drawn "
+        f"{s.groupby(['group', 'hand_check_set']).size().to_dict()}; written {PILOT_CSV}")
+
+
+# --- reader package ---
+
+CODEBOOK = os.path.join(frame.REPO, "report", "audits", "target_origin_codebook.md")
+FORM_FIELDS = ["origin", "secondary_origin", "grade", "quote", "source", "source_year", "discovery_route", "note"]
+
+
+def record_url(record_id: str) -> str:
+    source, _, ident = record_id.partition(":")
+    if source == "PMID":
+        return f"https://pubmed.ncbi.nlm.nih.gov/{ident}/"
+    return f"https://europepmc.org/article/{source}/{ident}"
+
+
+def search_links(row: dict) -> dict[str, str]:
+    from urllib.parse import quote
+    genes = row.get("gene_names") or [row["symbol"]]
+    diseases = row.get("disease_names") or [row["disease"]]
+    cutoff = int(row["cutoff_year"])
+    term = pair_term(list(genes), list(diseases))("1900", str(cutoff - 1))
+    return {"pubmed": "https://pubmed.ncbi.nlm.nih.gov/?term=" + quote(term),
+            "patents": (f"https://patents.google.com/?q={quote(row['symbol'])}&q={quote(row['disease'])}"
+                        f"&before=priority:{cutoff}0101")}
+
+
+def definitions() -> dict[str, str]:
+    return {line[2:].split(":", 1)[0]: line[2:].split(":", 1)[1].strip() for line in DEFINITIONS.splitlines()}
+
+
+PACKAGE_STYLE = """
+:root { --bg: #fbfaf7; --fg: #1d1d1b; --muted: #6b675f; --line: #ddd8cc; --card: #ffffff; --accent: #2b5d8a; --done: #2f7d4f; }
+@media (prefers-color-scheme: dark) { :root { --bg: #171716; --fg: #ebe8e1; --muted: #a39e93; --line: #3a3833; --card: #1f1f1d; --accent: #8fb8e0; --done: #7cc39a; } }
+* { box-sizing: border-box; } body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 -apple-system, "Helvetica Neue", Arial, sans-serif; }
+header { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+header h1 { font-size: 18px; margin: 0; } header .progress { color: var(--muted); } header button { font: inherit; padding: 4px 10px; }
+.wrap { display: grid; grid-template-columns: 260px 1fr; } nav { border-right: 1px solid var(--line); padding: 8px; position: sticky; top: 0; height: 100vh; overflow: auto; }
+nav a { display: block; padding: 3px 6px; color: var(--fg); text-decoration: none; border-radius: 4px; font-size: 13px; } nav a.done::before { content: "\\2713 "; color: var(--done); } nav a:hover { background: var(--line); }
+main { padding: 16px; max-width: 1100px; } details.codebook { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; margin-bottom: 16px; background: var(--card); }
+details.codebook pre { white-space: pre-wrap; font: 13px/1.4 inherit; margin: 0; }
+.card { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 14px 16px; margin-bottom: 20px; }
+.card h2 { margin: 0 0 4px; font-size: 18px; } .meta { color: var(--muted); font-size: 13px; margin-bottom: 8px; } .meta a { color: var(--accent); }
+.records { margin: 10px 0; } .rec { padding: 6px 0; border-top: 1px dashed var(--line); font-size: 14px; } .rec .y { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+.rec a { color: var(--accent); text-decoration: none; } .rec details { margin-top: 2px; } .rec summary { cursor: pointer; color: var(--muted); font-size: 13px; } .rec p { margin: 4px 0 0; white-space: pre-wrap; }
+form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 3px; } label.wide { grid-column: 1 / -1; }
+select, input, textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 5px 6px; } textarea { min-height: 56px; }
+@media (max-width: 800px) { .wrap { grid-template-columns: 1fr; } nav { position: static; height: auto; max-height: 30vh; } form { grid-template-columns: 1fr; } }
+"""
+
+PACKAGE_SCRIPT = """
+const SET = __SET__; const KEYS = __KEYS__; const FIELDS = __FIELDS__;
+const STORE = "target_origin_hand_check_" + SET;
+let answers = {};
+try { answers = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { answers = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(answers)); } catch (e) {} progress(); }
+function progress() {
+  const done = KEYS.filter(k => (answers[k] || {}).origin).length;
+  document.getElementById("progress").textContent = done + " of " + KEYS.length + " answered";
+  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("done", !!(answers[a.dataset.key] || {}).origin));
+}
+function csv() {
+  const q = s => '"' + String(s == null ? "" : s).replace(/"/g, '""') + '"';
+  const rows = KEYS.map(k => { const a = answers[k] || {}; const [e, m] = k.split("|"); return [e, m, ...FIELDS.map(f => a[f] || "")].map(q).join(","); });
+  return [["ensembl_id", "mondo_id", ...FIELDS].join(","), ...rows].join("\\n") + "\\n";
+}
+document.querySelectorAll("[data-key][data-field]").forEach(el => {
+  const v = (answers[el.dataset.key] || {})[el.dataset.field]; if (v != null) el.value = v;
+  el.addEventListener("input", () => { answers[el.dataset.key] = answers[el.dataset.key] || {}; answers[el.dataset.key][el.dataset.field] = el.value; save(); });
+});
+document.getElementById("copy").addEventListener("click", () => {
+  const text = csv(); const status = document.getElementById("status");
+  const fallback = () => { const ta = document.createElement("textarea"); ta.value = text; ta.style.width = "100%"; ta.style.height = "200px"; document.body.prepend(ta); ta.select(); status.textContent = "select all in the box and copy"; };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => { status.textContent = "copied"; }, fallback); else fallback();
+});
+document.getElementById("download").addEventListener("click", e => { e.target.href = URL.createObjectURL(new Blob([csv()], {type: "text/csv"})); });
+progress();
+"""
+
+
+def _select(k: str, name: str, values: list[str], defs: dict[str, str]) -> str:
+    import html as h
+    opts = "".join(f'<option value="{v}" title="{h.escape(defs.get(v, ""))}">{v}</option>' for v in values)
+    return f'<select data-key="{h.escape(k)}" data-field="{name}"><option value=""></option>{opts}</select>'
+
+
+def _card(p: dict, defs: dict[str, str]) -> str:
+    import html as h
+    k = h.escape(p["key"])
+    fp = p["first_program"]
+    recs = []
+    for r in p["records"]:
+        abstract = f'<details><summary>abstract</summary><p>{h.escape(r["abstract"])}</p></details>' if r["abstract"] else ""
+        recs.append(f'<div class="rec"><span class="y">{r["year"]}</span><a href="{h.escape(r["url"])}" target="_blank" '
+                    f'rel="noopener">{h.escape(r["title"])}</a> <span class="y">[{h.escape(r["record_id"])}]</span>{abstract}</div>')
+    n = p["n_records_total"]
+    shown = "; the earliest and the latest are shown" if n > len(p["records"]) else ""
+    prov_year = f" ({p['provisional_year']})" if p.get("provisional_year") else ""
+    return f"""<section class="card" id="{k}">
+<h2>{h.escape(p["symbol"])} &times; {h.escape(p["disease"])}</h2>
+<div class="meta">{h.escape(p["gene_name"])} ({h.escape(p["ensembl_id"])}); {h.escape(p["mondo_id"])}. <b>Cutoff year {p["cutoff_year"]}</b>: only sources dated {p["cutoff_year"] - 1} or earlier count.<br>
+First program: {h.escape(str(fp.get("entity", "not recorded")))}; sponsor {h.escape(str(fp.get("sponsor") or "not recorded"))}; Phase {h.escape(str(fp.get("phase", "")))} entry {h.escape(str(fp.get("entry", "")))}; trials {h.escape(", ".join(fp.get("nct_ids") or []) or "not recorded")}.<br>
+Provisional origin (earliest dated item in the evidence databases; the model saw it too): <b>{h.escape(p.get("provisional_origin") or "unclear")}</b>{prov_year}.<br>
+Search before the cutoff: <a href="{h.escape(p["links"]["pubmed"])}" target="_blank" rel="noopener">PubMed</a> &middot; <a href="{h.escape(p["links"]["patents"])}" target="_blank" rel="noopener">Google Patents</a></div>
+<div class="records"><b>{n}</b> records name the gene and the disease before the cutoff year{shown}.{"".join(recs) or '<div class="rec">(none)</div>'}</div>
+<form onsubmit="return false">
+<label>origin {_select(p["key"], "origin", ORIGINS, defs)}</label>
+<label>secondary_origin {_select(p["key"], "secondary_origin", ORIGINS, defs)}</label>
+<label>grade {_select(p["key"], "grade", GRADES, {})}</label>
+<label>discovery_route (optional) {_select(p["key"], "discovery_route", ROUTES, {})}</label>
+<label class="wide">quote (verbatim) <textarea data-key="{k}" data-field="quote"></textarea></label>
+<label>source (record id as shown, or URL) <input type="text" data-key="{k}" data-field="source"></label>
+<label>source_year <input type="number" data-key="{k}" data-field="source_year"></label>
+<label class="wide">note <textarea data-key="{k}" data-field="note"></textarea></label>
+</form></section>"""
+
+
+def render_package(rows: list[dict], codebook: str, set_name: str) -> str:
+    """The reader's page for one hand-check set: one card per pair with the same records the model saw, the codebook,
+    the form, answers kept in the browser and exported as CSV. No model label is read or shown."""
+    import html as h
+    import json
+    pairs = []
+    for r in sorted(rows, key=lambda r: (r["symbol"], r["disease"])):
+        pairs.append({"key": key(r["ensembl_id"], r["mondo_id"]), "ensembl_id": r["ensembl_id"],
+                      "mondo_id": r["mondo_id"], "symbol": r["symbol"], "gene_name": r.get("gene_name", r["symbol"]),
+                      "disease": r["disease"], "cutoff_year": int(r["cutoff_year"]),
+                      "first_program": r.get("first_program") or {}, "provisional_origin": r.get("provisional_origin"),
+                      "provisional_year": r.get("provisional_year"), "n_records_total": r.get("n_records_total", 0),
+                      "records": [{"record_id": x["record_id"], "year": x["year"], "title": x["title"],
+                                   "abstract": x.get("abstract") or "", "url": record_url(x["record_id"])}
+                                  for x in r.get("records", [])],
+                      "links": search_links(r)})
+    defs = definitions()
+    nav = "".join(f'<a href="#{h.escape(p["key"])}" data-key="{h.escape(p["key"])}">{h.escape(p["symbol"])} &times; '
+                  f'{h.escape(p["disease"])}</a>' for p in pairs)
+    cards = "\n".join(_card(p, defs) for p in pairs)
+    script = PACKAGE_SCRIPT
+    for token, value in [("__SET__", json.dumps(set_name)), ("__KEYS__", json.dumps([p["key"] for p in pairs])),
+                         ("__FIELDS__", json.dumps(FORM_FIELDS))]:
+        script = script.replace(token, value.replace("</", "<\\/"))
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Target origin hand check (set {h.escape(set_name)})</title>
+<style>{PACKAGE_STYLE}</style></head><body>
+<header><h1>Target origin hand check, set {h.escape(set_name)}</h1><span class="progress" id="progress"></span>
+<button id="copy">Copy answers as CSV</button><a id="download" download="target_origin_hand_check_{h.escape(set_name)}.csv" href="#">Download CSV</a><span id="status" class="progress"></span></header>
+<div class="wrap"><nav id="nav">{nav}</nav><main>
+<details class="codebook" open><summary>Codebook</summary><pre>{h.escape(codebook)}</pre></details>
+{cards}
+</main></div>
+<script>{script}</script></body></html>
+"""
+
+def package(args) -> None:
+    pairs = pair_frame(f"set_{args.set}")
+    items = label_items(pairs, hide_provisional=False)
+    names = frame.query("""SELECT ensembl_id, mondo_id, gene_names, disease_names FROM preclin.target_disease_search
+                           WHERE service = 'pubmed' AND (ensembl_id, mondo_id) IN %s""",
+                        (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
+    names = {(e, m): (list(g), list(d)) for e, m, g, d in
+             zip(names.ensembl_id, names.mondo_id, names.gene_names, names.disease_names)}
+    rows = []
+    for k, item in items.items():
+        g, d = names.get(split_key(k), (None, None))
+        rows.append({**item, "gene_names": g, "disease_names": d})
+    with open(CODEBOOK, encoding="utf-8") as f:
+        codebook = f.read()
+    page = render_package(rows, codebook, args.set)
+    with open(args.out, "w", encoding="utf-8") as f:
+        f.write(page)
+    log(f"{len(rows)} pairs, {sum(len(r['records']) for r in rows)} records, {len(page.encode()) / 1e6:.1f} MB -> {args.out}")
+
+
 # --- command line ---
 
 def _pending(name: str):
@@ -783,11 +1026,11 @@ def add_commands(sub) -> None:
     p = sub.add_parser("blind", help="second model labels a hand-check set from the records alone")
     pairs_option(p, default="set_a")
     p.set_defaults(fn=blind)
-    sub.add_parser("sample", help="draw the pilot of 100 pairs and the two hand-check sets").set_defaults(fn=_pending("sample"))
+    sub.add_parser("sample", help="draw the pilot of 100 pairs and the two hand-check sets").set_defaults(fn=sample)
     p = sub.add_parser("package", help="write the reader's page for a hand-check set")
     p.add_argument("--set", choices=["a", "b"], default="a")
     p.add_argument("--out", required=True, help="path of the HTML file to write")
-    p.set_defaults(fn=_pending("package"))
+    p.set_defaults(fn=package)
     p = sub.add_parser("gate", help="score the pilot against the reader's sheet")
     p.add_argument("--hand-check", required=True, help="the reader's CSV")
     p.add_argument("--reader", required=True, help="who read the set")
