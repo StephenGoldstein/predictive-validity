@@ -363,8 +363,8 @@ def render_label(p: dict) -> str:
     out = [f"TARGET: {p['symbol']} ({p['gene_name']}), {p['ensembl_id']}",
            f"DISEASE: {p['disease']} ({p['mondo_id']})",
            f"CUTOFF YEAR: {p['cutoff_year']}. Only sources dated {p['cutoff_year'] - 1} or earlier count.",
-           f"FIRST PROGRAM: {fp['entity']}; sponsor {fp['sponsor'] or 'not recorded'}; Phase {fp['phase']} entry "
-           f"{fp['entry']}; trials {', '.join(fp['nct_ids']) or 'not recorded'}"]
+           (f"FIRST PROGRAM: {fp['entity']}; sponsor {fp['sponsor'] or 'not recorded'}; Phase {fp['phase']} entry "
+            f"{fp['entry']}; trials {', '.join(fp['nct_ids']) or 'not recorded'}")]
     if p.get("provisional_origin") is not None:
         year = f" ({p['provisional_year']})" if p.get("provisional_year") else ""
         out.append(f"PROVISIONAL ORIGIN (earliest dated item in the evidence databases): {p['provisional_origin']}{year}")
@@ -468,28 +468,37 @@ def sources_for(pairs: pd.DataFrame) -> dict[tuple[str, str], list[dict]]:
             for k, g in s.groupby(["ensembl_id", "mondo_id"])}
 
 
-def label_items(pairs: pd.DataFrame, hide_provisional: bool) -> dict[str, dict]:
+def pair_items(pairs: pd.DataFrame) -> dict[str, dict]:
+    """What every reader of a pair sees: the gene, the disease, the cutoff year and the bundle of records."""
     labels = mondo_labels()
     gene_name = frame.query("SELECT ensembl_id, min(name) AS name FROM preclin.hgnc_gene WHERE ensembl_id IS NOT NULL "
                             "GROUP BY 1").set_index("ensembl_id").name.to_dict()
+    sources = sources_for(pairs)
+    items = {}
+    for r in pairs.itertuples():
+        rows = sources.get((r.ensembl_id, r.mondo_id), [])
+        items[key(r.ensembl_id, r.mondo_id)] = {
+            "ensembl_id": r.ensembl_id, "mondo_id": r.mondo_id, "symbol": r.symbol,
+            "gene_name": gene_name.get(r.ensembl_id, r.symbol), "disease": labels.get(r.mondo_id, r.mondo_id),
+            "cutoff_year": int(r.cutoff_year), "n_records_total": len(rows), "records": bundle(rows)}
+    return items
+
+
+def label_items(pairs: pd.DataFrame, hide_provisional: bool) -> dict[str, dict]:
+    """The labelling payloads: pair_items plus the first program and, unless hidden, the provisional origin."""
     prov = frame.query("SELECT ensembl_id, mondo_id, origin, origin_year FROM preclin.target_disease_origin "
                        "WHERE basis = 'provisional'")
     prov = {(e, m): (o, None if pd.isna(y) else int(y)) for e, m, o, y in
             zip(prov.ensembl_id, prov.mondo_id, prov.origin, prov.origin_year)}
-    sources = sources_for(pairs)
     programs = first_programs(pairs)
-    items = {}
-    for r in pairs.itertuples():
-        k = (r.ensembl_id, r.mondo_id)
-        rows = sources.get(k, [])
-        po, py = (None, None) if hide_provisional else prov.get(k, (None, None))
-        items[key(*k)] = {"ensembl_id": r.ensembl_id, "mondo_id": r.mondo_id, "symbol": r.symbol,
-                          "gene_name": gene_name.get(r.ensembl_id, r.symbol),
-                          "disease": labels.get(r.mondo_id, r.mondo_id), "cutoff_year": int(r.cutoff_year),
-                          "n_records_total": len(rows), "records": bundle(rows),
-                          "first_program": programs.get(k, {"entity": "not recorded", "sponsor": None, "phase": 2,
-                                                            "entry": str(r.first_entry.date()), "nct_ids": []}),
-                          "provisional_origin": po, "provisional_year": py}
+    entry = {(r.ensembl_id, r.mondo_id): str(r.first_entry.date()) for r in pairs.itertuples()}
+    items = pair_items(pairs)
+    for k, item in items.items():
+        pair = split_key(k)
+        po, py = (None, None) if hide_provisional else prov.get(pair, (None, None))
+        item["first_program"] = programs.get(pair, {"entity": "not recorded", "sponsor": None, "phase": 2,
+                                                    "entry": entry[pair], "nct_ids": []})
+        item["provisional_origin"], item["provisional_year"] = po, py
     return items
 
 
@@ -556,6 +565,194 @@ def label(args) -> None:
     log(f"pairs={len(items)} decided={len(rows)} undecided={len(todo)} runs={params['runs']}")
 
 
+# --- check ---
+
+CHECK_SYSTEM = f"""You verify one label of what first proposed a drug target for a disease. You are given the label (origin, grade, quote, sources with the years the labeller gave), the cutoff year, the full text of every cited record that was among the records shown to the labeller, and the category definitions. For a cited URL, fetch it. Answer three questions.
+quote_found: yes if the quote, or the sentence it closely paraphrases, is in a cited source; no if it is not; could_not_open if a cited URL could not be fetched and no shown record carries the quote.
+year_ok: yes if every cited source's own date (the publication year it shows) is before the cutoff year; no if any is in or after it; unknown if a cited URL's date could not be read.
+origin_follows: yes if the quoted passage supports the origin category under its definition; partly if it supports the category only together with the other sources, or supports a neighbouring category as well; no if it does not support it.
+note: one sentence.
+
+Categories:
+{DEFINITIONS}"""
+
+CHECK_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "properties": {"quote_found": {"type": "string", "enum": ["yes", "no", "could_not_open"]},
+                   "year_ok": {"type": "string", "enum": ["yes", "no", "unknown"]},
+                   "origin_follows": {"type": "string", "enum": ["yes", "partly", "no"]},
+                   "note": {"type": "string"}},
+    "required": ["quote_found", "year_ok", "origin_follows", "note"],
+}
+CHECK_TOOLS = [{"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 4, "blocked_domains": BLOCKED_DOMAINS}]
+CHECK_METHOD = "target_origin_check@v1"
+
+
+def render_check(p: dict) -> str:
+    out = [(f"TARGET: {p['symbol']}; DISEASE: {p['disease']}; CUTOFF YEAR: {p['cutoff_year']} "
+            f"(sources must be dated {p['cutoff_year'] - 1} or earlier)"),
+           f"LABEL: origin {p['origin']} ({p['grade']}), year {p['origin_year']}, secondary {p['secondary_origin']}",
+           f"QUOTE: {p['quote']}",
+           "SOURCES: " + "; ".join(f"{s} ({y})" for s, y in zip(p["sources"], p["source_years"])),
+           "CITED RECORDS SHOWN TO THE LABELLER:"]
+    for r in p["records"]:
+        out += [f"[{r['record_id']}] ({r['year']}) {r['title']}", r.get("abstract") or "(no abstract)"]
+    if not p["records"]:
+        out.append("(none; every cited source is a URL)")
+    return "\n".join(out)
+
+
+CHECK_TASK = llm.Task(name="target_origin_check", prompt_version="v1", schema_version="v1", system=CHECK_SYSTEM,
+                      schema=CHECK_SCHEMA, render=render_check, validate=None, subject_type="target_disease",
+                      model="claude-sonnet-5", effort="medium", max_tokens=4000, tools=CHECK_TOOLS)
+
+CHECK_DESCRIPTION = f"""For each graded labelled row of {LABEL_METHOD}: task {CHECK_TASK.name} {CHECK_TASK.prompt_version}
+({CHECK_TASK.model}, web fetch only) reads the label, its quote and sources, and the full text of the cited records,
+and says whether the quote is in a source, whether every source is dated before the cutoff year, and whether the
+origin follows. supported: all three hold (origin_follows yes or partly); unsupported: any is no; unverified: a URL
+could not be opened or dated and nothing is no. An unsupported or unverified row is rewritten as unclear (grade none,
+no quote, no sources); its label stays in llm_decision_id's decision. Unclear labels are not checked."""
+
+
+def check_outcome(out: dict) -> str:
+    if out["quote_found"] == "no" or out["year_ok"] == "no" or out["origin_follows"] == "no":
+        return "unsupported"
+    if out["quote_found"] == "could_not_open" or out["year_ok"] == "unknown":
+        return "unverified"
+    return "supported"
+
+
+def check_items(pairs: pd.DataFrame) -> dict[str, dict]:
+    """A payload per graded labelled row: the label and the full text of the cited records it was shown."""
+    if pairs.empty:
+        return {}
+    rows = frame.query("""SELECT o.ensembl_id, o.mondo_id, o.origin, o.origin_year, o.secondary_origin, o.grade, o.quote,
+                                 o.sources, o.llm_decision_id, d.parsed_output
+                          FROM preclin.target_disease_origin o JOIN pv_evidence.llm_decision d USING (llm_decision_id)
+                          WHERE o.basis = 'labelled' AND o.grade <> 'none' AND (o.ensembl_id, o.mondo_id) IN %s""",
+                       (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
+    base = pair_items(pairs)
+    sources = sources_for(pairs)
+    items = {}
+    for r in rows.itertuples():
+        k = key(r.ensembl_id, r.mondo_id)
+        cited = set(r.sources)
+        full = [x for x in sources.get((r.ensembl_id, r.mondo_id), []) if x["record_id"] in cited]
+        items[k] = {**{f: base[k][f] for f in ["ensembl_id", "mondo_id", "symbol", "disease", "cutoff_year"]},
+                    "origin": r.origin, "origin_year": None if pd.isna(r.origin_year) else int(r.origin_year),
+                    "secondary_origin": r.secondary_origin, "grade": r.grade, "quote": r.quote or "",
+                    "sources": list(r.sources), "source_years": list(r.parsed_output.get("source_years", [])),
+                    "records": full, "label_decision_id": int(r.llm_decision_id)}
+    return items
+
+
+def check(args) -> None:
+    pairs = pair_frame(args.pairs)
+    items = check_items(pairs)
+    params = {"task": CHECK_TASK.name, "prompt_version": CHECK_TASK.prompt_version, "model": CHECK_TASK.model,
+              "effort": CHECK_TASK.effort, "tools": CHECK_TOOLS, "run": None}
+    inputs = ["preclin.target_disease_origin", "preclin.target_disease_source", "pv_evidence.llm_decision",
+              "web fetch"]
+    run_id = llm.run(CHECK_TASK, items) if items else None
+    params["run"] = str(run_id) if run_id else None
+    decided = llm.decisions(run_id) if run_id else []
+    outcomes = {k: (check_outcome(o), i) for k, i, o in decided}
+    with llm.connect() as conn, conn.cursor() as cur:
+        llm.record_method(cur, CHECK_METHOD, "Second-model check of the origin labels", CHECK_DESCRIPTION, inputs, params)
+        for k, (outcome, decision_id) in outcomes.items():
+            e, m = split_key(k)
+            if outcome == "supported":
+                cur.execute("""UPDATE preclin.target_disease_origin SET check_outcome = %s, check_decision_id = %s
+                               WHERE basis = 'labelled' AND (ensembl_id, mondo_id) = (%s, %s)""",
+                            (outcome, decision_id, e, m))
+            else:
+                cur.execute("""UPDATE preclin.target_disease_origin SET check_outcome = %s, check_decision_id = %s,
+                                 origin = 'unclear', grade = 'none', origin_year = NULL, secondary_origin = NULL,
+                                 quote = NULL, sources = '{}'
+                               WHERE basis = 'labelled' AND (ensembl_id, mondo_id) = (%s, %s)""",
+                            (outcome, decision_id, e, m))
+        conn.commit()
+    counts = pd.Series([o for o, _ in outcomes.values()]).value_counts().to_dict() if outcomes else {}
+    log(f"graded labels={len(items)} checked={len(outcomes)} outcomes={counts} run={run_id}")
+
+
+# --- blind coder ---
+
+BLIND_SYSTEM = f"""You label what first proposed a drug target for a disease, from the records given and nothing else: the evidence that made someone think the target was worth a drug in that disease, before any drug on it was tested in patients for it. You are given the gene, the disease, the cutoff year and the records naming both that were published before it (the earliest and the latest, with the total count). Do not use anything you know from outside the records.
+
+ORIGIN. One of these categories:
+{DEFINITIONS}
+The origin is the kind of evidence that first proposed the pair, not the strongest and not the latest. Where the records show two kinds, the earlier is the origin and the other is secondary_origin.
+
+GRADE. {GRADE_RULE}
+
+SOURCE. For a graded label, exactly one record id from those given, with the year shown for it; an unclear label carries none. note is one sentence."""
+
+BLIND_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "properties": {"origin": {"type": "string", "enum": ORIGINS},
+                   "secondary_origin": {"type": ["string", "null"], "enum": [*ORIGINS, None]},
+                   "grade": {"type": "string", "enum": GRADES},
+                   "quote": {"type": "string"},
+                   "source": {"type": ["string", "null"]},
+                   "source_year": {"type": ["integer", "null"]},
+                   "note": {"type": "string"}},
+    "required": ["origin", "secondary_origin", "grade", "quote", "source", "source_year", "note"],
+}
+BLIND_METHOD = "target_origin_blind_read@v1"
+
+
+def render_blind(p: dict) -> str:
+    out = [f"TARGET: {p['symbol']} ({p['gene_name']}), {p['ensembl_id']}",
+           f"DISEASE: {p['disease']} ({p['mondo_id']})",
+           f"CUTOFF YEAR: {p['cutoff_year']}. Only sources dated {p['cutoff_year'] - 1} or earlier count."]
+    return "\n".join(out + render_records(p))
+
+
+def validate_blind(p: dict, out: dict) -> None:
+    if out["origin"] not in ORIGINS or out["grade"] not in GRADES:
+        raise ValueError("origin or grade outside the lists")
+    if out["secondary_origin"] is not None and (out["secondary_origin"] not in ORIGINS
+                                                or out["secondary_origin"] == out["origin"]):
+        raise ValueError(f"secondary_origin {out['secondary_origin']} with origin {out['origin']}")
+    if (out["origin"] == "unclear") != (out["grade"] == "none"):
+        raise ValueError(f"origin {out['origin']} with grade {out['grade']}")
+    if out["grade"] == "none":
+        if out["quote"].strip() or out["source"] is not None:
+            raise ValueError("an unclear origin carries no quote or source")
+        return
+    years = {r["record_id"]: r["year"] for r in p["records"]}
+    if not out["quote"].strip() or out["source"] not in years:
+        raise ValueError(f"a graded origin needs a quote and a source among the records given, not {out['source']!r}")
+    if out["source_year"] != years[out["source"]]:
+        raise ValueError(f"{out['source']} is dated {years[out['source']]}, not {out['source_year']}")
+
+
+BLIND_TASK = llm.Task(name="target_origin_blind_read", prompt_version="v1", schema_version="v1", system=BLIND_SYSTEM,
+                      schema=BLIND_SCHEMA, render=render_blind, validate=validate_blind, subject_type="target_disease",
+                      model="claude-opus-5-5", effort="medium", max_tokens=8000, tools=None)
+
+BLIND_DESCRIPTION = f"""Side analysis of the pilot, pre-specified on #146: task {BLIND_TASK.name}
+{BLIND_TASK.prompt_version} ({BLIND_TASK.model}, no tools) labels each pair of a hand-check set from the same records
+the reader sees, with no provisional origin and no program shown. Its labels never enter the gate and never shape a
+prompt revision; `gate` reports its agreement with the reader and with the labeller once the reader's sheet is in."""
+
+
+def blind(args) -> None:
+    pairs = pair_frame(args.pairs)
+    items = pair_items(pairs)
+    run_id = llm.run(BLIND_TASK, items)
+    decided = llm.decisions(run_id)
+    with llm.connect() as conn, conn.cursor() as cur:
+        llm.record_method(cur, BLIND_METHOD, "Blind second coder of a hand-check set", BLIND_DESCRIPTION,
+                          ["preclin.target_disease", "preclin.target_disease_source"],
+                          {"task": BLIND_TASK.name, "prompt_version": BLIND_TASK.prompt_version,
+                           "model": BLIND_TASK.model, "effort": BLIND_TASK.effort, "pairs": args.pairs,
+                           "run": str(run_id)})
+        conn.commit()
+    log(f"pairs={len(items)} decided={len(decided)} run={run_id} (labels sealed until gate runs with the reader's sheet)")
+
+
 # --- command line ---
 
 def _pending(name: str):
@@ -582,10 +779,10 @@ def add_commands(sub) -> None:
     p.set_defaults(fn=label)
     p = sub.add_parser("check", help="second-model check of each graded label")
     pairs_option(p)
-    p.set_defaults(fn=_pending("check"))
+    p.set_defaults(fn=check)
     p = sub.add_parser("blind", help="second model labels a hand-check set from the records alone")
     pairs_option(p, default="set_a")
-    p.set_defaults(fn=_pending("blind"))
+    p.set_defaults(fn=blind)
     sub.add_parser("sample", help="draw the pilot of 100 pairs and the two hand-check sets").set_defaults(fn=_pending("sample"))
     p = sub.add_parser("package", help="write the reader's page for a hand-check set")
     p.add_argument("--set", choices=["a", "b"], default="a")

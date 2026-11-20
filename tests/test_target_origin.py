@@ -208,3 +208,42 @@ def test_replace_rows_only_touches_the_keys_it_decided():
     sql, params = to.replace_sql(keys)
     assert "WHERE basis = 'labelled' AND (ensembl_id, mondo_id) IN %s" in sql
     assert params == (tuple(keys),)
+
+
+# --- check and blind coder ---
+
+@pytest.mark.parametrize("out, outcome", [
+    ({"quote_found": "yes", "year_ok": "yes", "origin_follows": "yes"}, "supported"),
+    ({"quote_found": "yes", "year_ok": "yes", "origin_follows": "partly"}, "supported"),
+    ({"quote_found": "no", "year_ok": "yes", "origin_follows": "yes"}, "unsupported"),
+    ({"quote_found": "yes", "year_ok": "no", "origin_follows": "yes"}, "unsupported"),
+    ({"quote_found": "yes", "year_ok": "yes", "origin_follows": "no"}, "unsupported"),
+    ({"quote_found": "could_not_open", "year_ok": "unknown", "origin_follows": "yes"}, "unverified"),
+    ({"quote_found": "could_not_open", "year_ok": "no", "origin_follows": "yes"}, "unsupported"),
+])
+def test_check_outcome(out, outcome):
+    assert to.check_outcome({**out, "note": ""}) == outcome
+
+
+def blind_payload() -> dict:
+    p = label_payload()
+    return {k: p[k] for k in ["ensembl_id", "mondo_id", "symbol", "gene_name", "disease", "cutoff_year",
+                              "n_records_total", "records"]}
+
+
+def test_validate_blind_rejects_a_source_outside_the_bundle():
+    good = {"origin": "diseased_tissue", "secondary_origin": None, "grade": "pattern", "quote": "q",
+            "source": "PMID:1", "source_year": 1999, "note": ""}
+    to.validate_blind(blind_payload(), good)
+    for bad in [{"source": URL}, {"source": "PMID:9"}, {"source_year": 2000}, {"origin": "unclear"},
+                {"grade": "none"}, {"secondary_origin": "diseased_tissue"}]:
+        with pytest.raises(ValueError):
+            to.validate_blind(blind_payload(), {**good, **bad})
+    to.validate_blind(blind_payload(), {"origin": "unclear", "secondary_origin": None, "grade": "none", "quote": "",
+                                        "source": None, "source_year": None, "note": ""})
+
+
+def test_render_blind_shows_no_provisional_origin_and_no_program():
+    text = to.render_blind(blind_payload())
+    assert "PMID:1" in text and "2007 or earlier" in text
+    assert "PROVISIONAL" not in text and "PROGRAM" not in text and "mouse_genetics" not in text
