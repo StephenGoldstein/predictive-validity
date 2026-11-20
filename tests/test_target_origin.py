@@ -374,3 +374,12 @@ def test_blind_items_carry_the_replicate_in_key_and_payload():
     assert set(items) == {"ENSG1|MONDO:1|r1", "ENSG1|MONDO:1|r2", "ENSG1|MONDO:1|r3"}
     assert items["ENSG1|MONDO:1|r2"]["replicate"] == 2 and items["ENSG1|MONDO:1|r2"]["ensembl_id"] == "ENSG1"
     assert to.split_key("ENSG1|MONDO:1|r2") == ("ENSG1", "MONDO:1")
+
+
+def test_bundle_tolerates_missing_abstracts_from_a_dataframe():
+    import numpy as np
+    rows = to.ranked([{"record_id": "PMID:1", "service": "pubmed", "title": "T", "abstract": None, "year": 1999, "doi": None},
+                      {"record_id": "PMID:2", "service": "pubmed", "title": "T", "abstract": np.nan, "year": 2000, "doi": np.nan}])
+    assert [r["abstract"] for r in to.bundle(rows)] == ["", ""]
+    df = pd.DataFrame(rows)
+    assert all(r["abstract"] is None for r in to.records_from(df))

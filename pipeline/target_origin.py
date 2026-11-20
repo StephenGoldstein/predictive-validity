@@ -151,7 +151,13 @@ def bundle(rows: list[dict]) -> list[dict]:
     abstracts cut to ABSTRACT_CHARS."""
     rows = sorted(rows, key=lambda r: r["rank"])
     chosen = rows[:BUNDLE_EARLIEST] + rows[max(BUNDLE_EARLIEST, len(rows) - BUNDLE_LATEST):]
-    return [{**r, "abstract": (r["abstract"] or "")[:ABSTRACT_CHARS]} for r in chosen]
+    return [{**r, "abstract": (r["abstract"] if isinstance(r["abstract"], str) else "")[:ABSTRACT_CHARS]}
+            for r in chosen]
+
+
+def records_from(df: pd.DataFrame) -> list[dict]:
+    """Rows of a source frame as dicts, with a missing abstract or doi as None rather than NaN."""
+    return df.astype(object).where(df.notna(), None).to_dict("records")
 
 
 # --- pair sets ---
@@ -460,7 +466,7 @@ def sources_for(pairs: pd.DataFrame) -> dict[tuple[str, str], list[dict]]:
     s = frame.query("""SELECT ensembl_id, mondo_id, record_id, service, title, abstract, year, rank
                        FROM preclin.target_disease_source WHERE (ensembl_id, mondo_id) IN %s ORDER BY rank""",
                     (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
-    return {k: g.drop(columns=["ensembl_id", "mondo_id"]).to_dict("records")
+    return {k: records_from(g.drop(columns=["ensembl_id", "mondo_id"]))
             for k, g in s.groupby(["ensembl_id", "mondo_id"])}
 
 
