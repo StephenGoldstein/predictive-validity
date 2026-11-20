@@ -95,3 +95,79 @@ first run; `gate` now reports it as `kappa_covered` and `kappa_uncovered`.)
    registered "unverified as labelled" sensitivity.
 
 Posted to #146 as a dated comment for decision; the full run waits for both gates.
+
+---
+
+# Re-run after the three fixes (2026-11-19 late to 2026-11-20 early)
+
+Same 100 pairs, same labeller prompt (v1). Changes, posted on #146 before the run: gene names gain the UniProt and
+HGNC protein names (a symbol of three characters or fewer is searched only when no other name exists; migration 144
+stores the count without it); the blind reference reader has the labeller's web search and fetch (prompt v2); the
+checker reads cited PubMed records through E-utilities, ignores the label's decision id, runs three passes (prompt
+v2). The agreement gate is scored on set b, untouched until now; set a is reported beside it. Gate files:
+`target_origin_gate.json` (set b), `target_origin_gate_set_a.json`.
+
+## Retrieval
+
+| | not causal | other | all |
+|---|---|---|---|
+| pairs with at least one pre-entry record | 22 (0.44) | 26 (0.52) | 48 |
+| records stored | | | 5,076 (max per pair 1,598) |
+
+Coverage gap 8 points: **passes**. Fifty-two pairs still have no record naming both the gene and the disease.
+
+## Labelling and check
+
+100 of 100 pairs decided (two passes). Grades: stated 28, pattern 27, none 10 (before the check). Discovery route:
+derived from an existing active 31, repurposed drug 23, target screen 12, de novo design 6, unclear 28. Tokens per
+label decision 4,262 in and 2,110 out; per reference reading 4,283 in and 930 out; per check 750 in and 379 out.
+
+Check of 90 graded labels: supported 55, unsupported 21, unverified 14. Of the 35 rejections, `quote_found` was
+could_not_open 18, yes 11, no 6; `origin_follows` was no 15, partly 11, yes 9; 29 of the 35 cite publisher,
+ResearchGate or other non-PubMed URLs that a fetch-only checker cannot open. After the check 45 of 100 stored rows
+are unclear.
+
+## Reference reading (web-enabled, three replicates)
+
+| set | readings valid | unanimous | majority | no majority | pairwise agreement |
+|---|---|---|---|---|---|
+| b | 148 of 150 | 35 | 14 | 1 | 0.82 |
+| a | 149 of 150 | 30 | 16 | 4 | 0.72 |
+
+Reference origins on set b: human_cell_perturbation 8, animal_model_pharmacology 8, earlier_drug_other_disease 8,
+observational_biomarker 7, diseased_tissue 6, unclear 5, tumour_genetics 2, human_genetics 2, clinical_observation 1,
+phenotypic_screen 1, mouse_genetics 1. The labeller's raw origins on the same set: animal_model_pharmacology 9,
+earlier_drug_other_disease 9, diseased_tissue 7, observational_biomarker 7, unclear 5, human_cell_perturbation 4,
+clinical_observation 4, tumour_genetics 2, mouse_genetics 2, human_genetics 1.
+
+## Gate
+
+| set | pairs | κ labeller raw vs reference | κ stored after check | κ with records | κ without records | reference is primary or secondary | pass (stored) |
+|---|---|---|---|---|---|---|---|
+| b | 49 | **0.70** | 0.43 | 0.41 (26) | 0.41 (23) | 0.76 | no |
+| a | 46 | 0.68 | 0.40 | 0.43 (19) | 0.37 (27) | | no |
+
+Collapsed-layer κ on set b: 0.45 stored. No pair is missing a label.
+
+## Reading of the result
+
+- **The two independent readers agree.** With equal access, the labeller's label and the majority of three blind
+  readings agree at κ 0.70 on set b and 0.68 on set a, above the registered 0.6, with the reference's origin being
+  the labeller's primary or secondary origin for 0.76 of pairs. The access problem of the first run is gone: κ is the
+  same with and without stored records.
+- **The check, not the labelling, fails the stored-origin gate.** The checker rejects 35 of 90 labels. On set b the
+  reference agrees with the labeller on 6 of 6 labels marked unverified and 7 of 11 marked unsupported, the same
+  rate as for the labels it kept (20 of 27). The rejections are mostly the checker's reach (18 "could not open"; 29
+  cite pages a fetch-only checker cannot read), not the labels' content.
+- The gate statistic "stored origin after the check" was the design's own choice (the registered text says "kappa
+  ≥ 0.6 against a blind hand check of 50" and is silent on the check). On the labeller's label as read, the gate
+  passes; on the stored origin it fails.
+
+## Decisions for the owner (none taken)
+
+1. Score the agreement gate on the labeller's label as read, and report the check's outcome rates as the filter they
+   are. Under that reading the pilot passes both gates (set b: κ 0.70, gap 8).
+2. Give the checker the labeller's web search and fetch (checker v3) so it reads what the labeller read, and re-check
+   the 90 graded labels (about 90 Sonnet calls); keep the registered sensitivity that counts unverified rows as labelled.
+
+Neither is a revision of the labeller's prompt. The full run waits for the owner's decision and an announcement.

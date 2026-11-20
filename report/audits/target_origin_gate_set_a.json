@@ -1,0 +1,47 @@
+{
+  "n": 46,
+  "kappa_stored": 0.4025974025974025,
+  "kappa_raw": 0.6781485468245425,
+  "kappa_stored_layer": 0.3894979803808424,
+  "kappa_raw_layer": 0.6727919383521044,
+  "any_origin_agree": 0.8043478260869565,
+  "coverage": {
+    "not_causal": 0.44,
+    "other": 0.52
+  },
+  "gap_points": 8.0,
+  "n_missing": 0,
+  "kappa_blind_vs_reader": null,
+  "kappa_blind_vs_raw": null,
+  "n_covered": 19,
+  "kappa_covered": 0.42598187311178237,
+  "kappa_uncovered": 0.365771812080537,
+  "pass": false,
+  "set": "a",
+  "reader": "model",
+  "read_pairs": 46,
+  "labelled_in_set": 50,
+  "kappa_min": 0.6,
+  "gap_max": 10.0,
+  "graded_not_checked": 0,
+  "runs": {
+    "target_origin_label@v1": [
+      "6c6b3474-b092-44a9-a0f2-9452d414e9fb",
+      "654dfda7-a9ea-4394-8f3e-639ae8a4eea0"
+    ],
+    "target_origin_check@v1": [
+      "dd158ea2-844e-4d70-ae33-9c01b904df76",
+      "c42bbef1-8501-43f4-8b50-13cfa5252c60"
+    ],
+    "target_origin_blind_read@v1": "60007220-49df-4da9-9538-0f848c2a3814"
+  },
+  "reference": "blind model reading, majority of replicates",
+  "consistency": {
+    "pairs": 50,
+    "replicates": 3,
+    "unanimous": 30,
+    "majority": 16,
+    "no_majority": 4,
+    "pairwise_agreement": 0.7162162162162162
+  }
+}
