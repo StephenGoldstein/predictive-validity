@@ -350,3 +350,27 @@ def test_gate_reports_blind_kappas_only_when_given():
     r = to.gate_result(reader, stored, raw, {"not_causal": 0.9, "other": 0.9}, blind)
     assert r["kappa_blind_vs_reader"] == 1.0 and r["kappa_blind_vs_raw"] == 1.0
     assert r["kappa_stored_layer"] == 1.0
+
+
+# --- model reference: majority of three blind readings ---
+
+def test_majority_reference_and_consistency():
+    readings = [("ENSG1|MONDO:1|r1", "human_genetics"), ("ENSG1|MONDO:1|r2", "human_genetics"),
+                ("ENSG1|MONDO:1|r3", "mouse_genetics"),
+                ("ENSG2|MONDO:1|r1", "unclear"), ("ENSG2|MONDO:1|r2", "unclear"), ("ENSG2|MONDO:1|r3", "unclear"),
+                ("ENSG3|MONDO:1|r1", "cell_screen"), ("ENSG3|MONDO:1|r2", "diseased_tissue"),
+                ("ENSG3|MONDO:1|r3", "unclear"),
+                ("ENSG4|MONDO:1|r1", "cell_screen"), ("ENSG4|MONDO:1|r2", "cell_screen")]
+    ref, stats = to.majority_reference(readings)
+    assert ref.set_index("ensembl_id").origin.to_dict() == {"ENSG1": "human_genetics", "ENSG2": "unclear",
+                                                            "ENSG4": "cell_screen"}
+    assert stats["pairs"] == 4 and stats["unanimous"] == 1 and stats["majority"] == 2 and stats["no_majority"] == 1
+    assert stats["replicates"] == 3 and 0 <= stats["pairwise_agreement"] <= 1
+
+
+def test_blind_items_carry_the_replicate_in_key_and_payload():
+    base = {"ENSG1|MONDO:1": {"ensembl_id": "ENSG1", "records": []}}
+    items = to.replicate_items(base, 3)
+    assert set(items) == {"ENSG1|MONDO:1|r1", "ENSG1|MONDO:1|r2", "ENSG1|MONDO:1|r3"}
+    assert items["ENSG1|MONDO:1|r2"]["replicate"] == 2 and items["ENSG1|MONDO:1|r2"]["ensembl_id"] == "ENSG1"
+    assert to.split_key("ENSG1|MONDO:1|r2") == ("ENSG1", "MONDO:1")

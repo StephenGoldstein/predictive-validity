@@ -696,6 +696,38 @@ BLIND_SCHEMA = {
     "required": ["origin", "secondary_origin", "grade", "quote", "source", "source_year", "note"],
 }
 BLIND_METHOD = "target_origin_blind_read@v1"
+BLIND_REPLICATES = 3  # independent readings per pair; the reference label is their majority
+
+
+def replicate_items(items: dict[str, dict], n: int) -> dict[str, dict]:
+    """n copies of each item, keyed key|r1..rn with the replicate in the payload, so each is a separate decision."""
+    return {f"{k}|r{i}": {**v, "replicate": i} for k, v in items.items() for i in range(1, n + 1)}
+
+
+def majority_reference(readings: list[tuple[str, str]]) -> tuple[pd.DataFrame, dict]:
+    """From (key|r<n>, origin) readings: the majority origin per pair (ensembl_id, mondo_id, origin; pairs with no
+    majority left out) and the consistency statistics: pairs, replicates, unanimous, majority, no_majority,
+    pairwise_agreement (share of agreeing replicate pairs)."""
+    from collections import Counter, defaultdict
+    by_pair: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for k, origin in readings:
+        by_pair[split_key(k)].append(origin)
+    replicates = max((len(v) for v in by_pair.values()), default=0)
+    rows, unanimous, majority, none, agree = [], 0, 0, 0, []
+    for (e, m), origins in by_pair.items():
+        top, n = Counter(origins).most_common(1)[0]
+        if n == replicates and replicates > 1:
+            unanimous += 1
+            rows.append((e, m, top))
+        elif n > len(origins) / 2:
+            majority += 1
+            rows.append((e, m, top))
+        else:
+            none += 1
+        agree += [a == b for i, a in enumerate(origins) for b in origins[i + 1:]]
+    stats = {"pairs": len(by_pair), "replicates": replicates, "unanimous": unanimous, "majority": majority,
+             "no_majority": none, "pairwise_agreement": float(sum(agree) / len(agree)) if agree else None}
+    return pd.DataFrame(rows, columns=["ensembl_id", "mondo_id", "origin"]), stats
 
 
 def render_blind(p: dict) -> str:
@@ -728,15 +760,17 @@ BLIND_TASK = llm.Task(name="target_origin_blind_read", prompt_version="v1", sche
                       schema=BLIND_SCHEMA, render=render_blind, validate=validate_blind, subject_type="target_disease",
                       model="claude-opus-5-5", effort="medium", max_tokens=8000, tools=None)
 
-BLIND_DESCRIPTION = f"""Side analysis of the pilot, pre-specified on #146: task {BLIND_TASK.name}
-{BLIND_TASK.prompt_version} ({BLIND_TASK.model}, no tools) labels each pair of a hand-check set from the same records
-the reader sees, with no provisional origin and no program shown. Its labels never enter the gate and never shape a
-prompt revision; `gate` reports its agreement with the reader and with the labeller once the reader's sheet is in."""
+BLIND_DESCRIPTION = f"""Blind reference reading of a hand-check set (#146; the owner's decision of 2026-11-19 that a
+model reads the set in place of a human hand check): task {BLIND_TASK.name} {BLIND_TASK.prompt_version}
+({BLIND_TASK.model}, no tools) labels each pair from the same records the labeller was shown, with no provisional
+origin and no program, {BLIND_REPLICATES} times independently. The reference label is the majority of the readings;
+pairs with no majority are reported and left out of the agreement gate; the readings' mutual agreement is the
+consistency check. The readings never shape a prompt revision."""
 
 
 def blind(args) -> None:
     pairs = pair_frame(args.pairs)
-    items = pair_items(pairs)
+    items = replicate_items(pair_items(pairs), BLIND_REPLICATES)
     run_id = llm.run(BLIND_TASK, items)
     decided = llm.decisions(run_id)
     with llm.connect() as conn, conn.cursor() as cur:
@@ -744,9 +778,10 @@ def blind(args) -> None:
                           ["preclin.target_disease", "preclin.target_disease_source"],
                           {"task": BLIND_TASK.name, "prompt_version": BLIND_TASK.prompt_version,
                            "model": BLIND_TASK.model, "effort": BLIND_TASK.effort, "pairs": args.pairs,
-                           "run": str(run_id)})
+                           "replicates": BLIND_REPLICATES, "run": str(run_id)})
         conn.commit()
-    log(f"pairs={len(items)} decided={len(decided)} run={run_id} (labels sealed until gate runs with the reader's sheet)")
+    _, stats = majority_reference([(k, o["origin"]) for k, _, o in decided])
+    log(f"pairs={len(pairs)} readings={len(decided)} of {len(items)} run={run_id} consistency={stats}")
 
 
 # --- pilot sample ---
@@ -1005,9 +1040,10 @@ KAPPA_MIN = 0.6
 GAP_MAX = 10.0
 GATE_JSON = os.path.join(frame.REPO, "report", "audits", "target_origin_gate.json")
 GATE_METHOD = "target_origin_pilot@v1"
-GATE_DESCRIPTION = f"""Pilot gates of the origin labelling (#146 step 4, registered 2026-11-19). Agreement: Cohen's kappa
-between the reader's origin and the stored origin after the second-model check, over the 13 categories, on one
-hand-check set; must be at least {KAPPA_MIN}. Coverage: the share of pilot pairs with at least one pre-entry record,
+GATE_DESCRIPTION = f"""Pilot gates of the origin labelling (#146 step 4, registered 2026-11-19; reference changed to a
+blind model reading by the owner's decision the same day). Agreement: Cohen's kappa between the reference origin (the
+majority of {BLIND_REPLICATES} blind readings, or a human reader's sheet when one is given) and the stored origin after
+the second-model check, over the 13 categories, on one hand-check set; must be at least {KAPPA_MIN}. Coverage: the share of pilot pairs with at least one pre-entry record,
 in the group with a settled "not causal" stop and the group without; the gap must be at most {GAP_MAX} points. Also
 reported, never gating: kappa on the labeller's raw origin, both on the collapsed layer, agreement with the labeller's
 primary or secondary origin, and the blind second coder's kappa against the reader and the labeller."""
@@ -1066,26 +1102,37 @@ def decision_origins(task: str, column: str) -> pd.DataFrame:
     return d[["ensembl_id", "mondo_id", column, "secondary_origin"]]
 
 
+def blind_reference() -> tuple[pd.DataFrame, dict]:
+    """The majority origin of the blind readings per pair, and their consistency."""
+    d = llm.latest_decisions(BLIND_TASK.name, BLIND_TASK.prompt_version)
+    return majority_reference([(k, o["origin"]) for k, o in zip(d.key, d.parsed_output)])
+
+
 def gate(args) -> None:
     import json
-    reader = pd.read_csv(args.hand_check, dtype=str)
-    missing = {"ensembl_id", "mondo_id", "origin"} - set(reader.columns)
-    if missing:
-        raise SystemExit(f"{args.hand_check} lacks columns {sorted(missing)}")
-    reader = reader[reader.origin.notna() & reader.origin.ne("")]
-    bad = sorted(set(reader.origin) - set(ORIGINS))
-    if bad:
-        raise SystemExit(f"origins outside the list: {bad}")
+    reference, consistency = blind_reference()
+    if args.hand_check:
+        reader = pd.read_csv(args.hand_check, dtype=str)
+        missing = {"ensembl_id", "mondo_id", "origin"} - set(reader.columns)
+        if missing:
+            raise SystemExit(f"{args.hand_check} lacks columns {sorted(missing)}")
+        reader = reader[reader.origin.notna() & reader.origin.ne("")]
+        bad = sorted(set(reader.origin) - set(ORIGINS))
+        if bad:
+            raise SystemExit(f"origins outside the list: {bad}")
+        blind = reference.rename(columns={"origin": "blind_origin"}) if len(reference) else None
+    else:
+        reader, blind = reference, None
     pairs = pair_frame(f"set_{args.set}")
     stored = frame.query("""SELECT ensembl_id, mondo_id, origin FROM preclin.target_disease_origin
                             WHERE basis = 'labelled' AND (ensembl_id, mondo_id) IN %s""",
                          (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
     raw = decision_origins(LABEL_TASK.name, "origin")
-    blind = decision_origins(BLIND_TASK.name, "blind_origin")
-    blind = blind[["ensembl_id", "mondo_id", "blind_origin"]] if len(blind) else None
     result = gate_result(reader, stored, raw, coverage_by_group(), blind)
     result.update({"set": args.set, "reader": args.reader, "read_pairs": len(reader),
-                   "labelled_in_set": len(stored), "kappa_min": KAPPA_MIN, "gap_max": GAP_MAX})
+                   "labelled_in_set": len(stored), "kappa_min": KAPPA_MIN, "gap_max": GAP_MAX,
+                   "reference": "hand check" if args.hand_check else "blind model reading, majority of replicates",
+                   "consistency": consistency})
     with open(GATE_JSON, "w") as f:
         json.dump(result, f, indent=2)
     with llm.connect() as conn, conn.cursor() as cur:
@@ -1154,8 +1201,9 @@ def add_commands(sub) -> None:
     p.add_argument("--out", required=True, help="path of the HTML file to write")
     p.set_defaults(fn=package)
     p = sub.add_parser("gate", help="score the pilot against the reader's sheet")
-    p.add_argument("--hand-check", required=True, help="the reader's CSV")
-    p.add_argument("--reader", required=True, help="who read the set")
+    p.add_argument("--hand-check", default=None,
+                   help="a human reader's CSV; without it the blind model reading is the reference")
+    p.add_argument("--reader", default="model", help="who read the set")
     p.add_argument("--set", choices=["a", "b"], default="a")
     p.set_defaults(fn=gate)
     p = sub.add_parser("summary", help="labels, grades, check outcomes and coverage")
