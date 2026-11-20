@@ -27,7 +27,6 @@ from pipeline import attribution, literature, llm
 from pipeline.literature import names_clause
 from pipeline.stop_causes import BLOCKED_DOMAINS
 from report import frame
-from report.section3 import CLOSE, neighbourhood
 from report.windows import SECTION1
 
 ORIGINS = ["human_genetics", "tumour_genetics", "diseased_tissue", "mouse_genetics", "curated_pathway", "cell_screen",
@@ -48,9 +47,8 @@ PAIR_SETS = ["pilot", "set_a", "set_b", "window", "all"]
 SEARCH_METHOD = "target_origin_search@v1"
 SEARCH_DESCRIPTION = f"""For each target-disease pair (preclin.target_disease): PubMed (esearch, efetch) and Europe PMC
 (records outside MEDLINE with an abstract) for titles or abstracts naming the gene (HGNC symbol first, then its name,
-the target name and aliases passing pipeline.literature.usable, at most {MAX_GENE_NAMES}) and the disease (MONDO label,
-synonyms and the labels of terms within Lin {CLOSE}, shortest first, at most {MAX_DISEASE_NAMES}), dated 1900 to the year
-before the pair's first entry. Reviews are kept. A record without a year, or dated in or after the cutoff year, is
+the target name and aliases passing pipeline.literature.usable, at most {MAX_GENE_NAMES}) and the disease (MONDO label
+and its synonyms, shortest first, at most {MAX_DISEASE_NAMES}), dated 1900 to the year before the pair's first entry. Reviews are kept. A record without a year, or dated in or after the cutoff year, is
 dropped. Every remaining record is stored with its rank by (year, record_id)."""
 
 
@@ -97,11 +95,11 @@ def gene_names(symbol: str, hgnc: pd.DataFrame, target_name: str | None) -> list
     return _dedupe([symbol] + names + [a for a in aliases if a and literature.usable(a)])[:MAX_GENE_NAMES]
 
 
-def disease_names(label: str, synonyms: list[str], close_labels: list[str]) -> list[str]:
-    """The label first; then synonyms and the labels of close terms that pass disease_usable, shortest first; at most
-    MAX_DISEASE_NAMES."""
-    rest = sorted((n for n in _dedupe(list(synonyms) + list(close_labels)) if disease_usable(n)
-                   and n.lower() != label.lower()), key=len)
+def disease_names(label: str, synonyms: list[str]) -> list[str]:
+    """The label first; then its MONDO synonyms that pass disease_usable, shortest first; at most MAX_DISEASE_NAMES.
+    Terms close to the disease (the evidence lines' Lin 0.8 neighbourhood) are not searched: that neighbourhood puts
+    lung cancer beside breast cancer, which is right for matching evidence rows and wrong for naming a disease."""
+    rest = sorted((n for n in _dedupe(list(synonyms)) if disease_usable(n) and n.lower() != label.lower()), key=len)
     return [label] + rest[:MAX_DISEASE_NAMES - 1]
 
 
@@ -189,7 +187,7 @@ def mondo_labels() -> dict[str, str]:
     return dict(zip(t.term_id, t.label))
 
 
-def pair_names(ensembl_id: str, symbol: str, mondo_id: str, nb, labels: dict[str, str]) -> tuple[list[str], list[str]]:
+def pair_names(ensembl_id: str, symbol: str, mondo_id: str, labels: dict[str, str]) -> tuple[list[str], list[str]]:
     hgnc = frame.query("SELECT symbol, name, prev_symbols, alias_symbols FROM preclin.hgnc_gene WHERE ensembl_id = %s",
                        (ensembl_id,))
     tname = frame.query("SELECT min(name) AS name FROM public.targets WHERE ensembl_id = %s", (ensembl_id,))
@@ -197,14 +195,13 @@ def pair_names(ensembl_id: str, symbol: str, mondo_id: str, nb, labels: dict[str
     term = frame.query("SELECT label, synonyms FROM preclin.ontology_term WHERE term_id = %s", (mondo_id,))
     label = term.label[0] if len(term) else labels.get(mondo_id, mondo_id)
     synonyms = list(term.synonyms[0] or []) if len(term) else []
-    close = [labels[t] for t in nb.terms(mondo_id, CLOSE) if t in labels and t != mondo_id]
-    return gene_names(symbol, hgnc, target_name), disease_names(label, synonyms, close)
+    return gene_names(symbol, hgnc, target_name), disease_names(label, synonyms)
 
 
-def search_pair(cur, row, nb, labels: dict[str, str], max_records: int | None) -> tuple[int, int, int]:
+def search_pair(cur, row, labels: dict[str, str], max_records: int | None) -> tuple[int, int, int]:
     """Search both services for one pair and replace its rows; returns (PubMed hits, Europe PMC hits, rows stored)."""
     cutoff = int(row.cutoff_year)
-    genes, diseases = pair_names(row.ensembl_id, row.symbol, row.mondo_id, nb, labels)
+    genes, diseases = pair_names(row.ensembl_id, row.symbol, row.mondo_id, labels)
     term = pair_term(genes, diseases)
     pm_query, pm_hits, pmids = literature.pubmed_ids(genes, cutoff - 1, term=term)
     pm_rows = pubmed_rows(attribution.efetch(pmids), cutoff) if pmids else []
@@ -242,13 +239,12 @@ def search(args) -> None:
     done = set() if args.redo else searched()
     todo = pairs[[(e, m) not in done for e, m in zip(pairs.ensembl_id, pairs.mondo_id)]]
     log(f"{len(pairs)} pairs in {args.pairs}; {len(todo)} to search")
-    nb = neighbourhood()
     labels = mondo_labels()
     with llm.connect() as conn, conn.cursor() as cur:
         llm.record_method(cur, SEARCH_METHOD, "Pre-entry sources per target-disease pair", SEARCH_DESCRIPTION,
                           ["PubMed", "Europe PMC", "preclin.target_disease", "preclin.hgnc_gene", "public.targets",
                            "preclin.ontology_term", "MONDO"],
-                          {"max_gene_names": MAX_GENE_NAMES, "max_disease_names": MAX_DISEASE_NAMES, "close": CLOSE,
+                          {"max_gene_names": MAX_GENE_NAMES, "max_disease_names": MAX_DISEASE_NAMES,
                            "date_rule": "publication year < year of first_entry", "reviews": "kept",
                            "max_records": args.max_records})
         conn.commit()
@@ -256,7 +252,7 @@ def search(args) -> None:
     with llm.connect() as conn, conn.cursor() as cur:
         for i, row in enumerate(todo.itertuples(), 1):
             try:
-                pm, ep, n = search_pair(cur, row, nb, labels, args.max_records)
+                pm, ep, n = search_pair(cur, row, labels, args.max_records)
                 conn.commit()
             except (literature.SourceDown, RuntimeError) as e:
                 conn.rollback()

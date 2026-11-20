@@ -27,7 +27,7 @@ COMMENT ON COLUMN preclin.target_disease_search.mondo_id IS 'The pair (preclin.t
 COMMENT ON COLUMN preclin.target_disease_search.service IS 'pubmed (E-utilities esearch and efetch), europepmc (records outside MEDLINE with an abstract), or firecrawl (reserved for #154; not written by the origin search).';
 COMMENT ON COLUMN preclin.target_disease_search.cutoff_year IS 'Year of the pair''s first_entry. Only records published in an earlier year count, so the search runs to cutoff_year - 1.';
 COMMENT ON COLUMN preclin.target_disease_search.gene_names IS 'Names searched for the gene: the HGNC symbol first, then its name, the target name, previous and alias symbols that pass pipeline.literature.usable, at most 12.';
-COMMENT ON COLUMN preclin.target_disease_search.disease_names IS 'Names searched for the disease: the MONDO label, its synonyms and the labels of terms within Lin 0.8 of it, shortest first, at most 20.';
+COMMENT ON COLUMN preclin.target_disease_search.disease_names IS 'Names searched for the disease: the MONDO label and its synonyms, shortest first, at most 20. Terms close to the disease are not searched.';
 COMMENT ON COLUMN preclin.target_disease_search.query IS 'The query as sent: gene names AND disease names in title or abstract, dated 1900 to cutoff_year - 1; reviews are kept.';
 COMMENT ON COLUMN preclin.target_disease_search.n_hits IS 'Hit count the service reported for the query, before any record was dropped for a missing or late year; a count far above the stored rows shows a flooded name.';
 COMMENT ON COLUMN preclin.target_disease_search.searched_at IS 'When the search ran.';

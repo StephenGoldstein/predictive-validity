@@ -55,8 +55,8 @@ def test_gene_names_drops_identifiers_and_caps():
 
 
 def test_disease_names_shortest_first_and_capped():
-    close = [f"related disease number {i}" for i in range(30)]
-    names = to.disease_names("Rheumatoid Arthritis", ["RA", "rheumatoid arthritis", "arthritis, rheumatoid"], close)
+    synonyms = ["RA", "rheumatoid arthritis", "arthritis, rheumatoid"] + [f"synonym number {i}" for i in range(30)]
+    names = to.disease_names("Rheumatoid Arthritis", synonyms)
     assert names[0] == "Rheumatoid Arthritis"
     assert "RA" not in names  # shorter than four characters
     assert "rheumatoid arthritis" not in names[1:]  # case-insensitive duplicate of the label
