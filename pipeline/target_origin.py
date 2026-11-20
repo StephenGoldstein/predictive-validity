@@ -268,3 +268,48 @@ def search(args) -> None:
     log(f"searched {len(todo) - failed} pairs, {stored:,} records stored, {failed} failed")
 
 
+
+
+# --- command line ---
+
+def _pending(name: str):
+    """A command registered before its task lands; it carries the command's name so the CLI test reads it."""
+    def fn(args) -> None:
+        raise NotImplementedError(f"{name} is not built yet")
+    fn.__name__ = name
+    return fn
+
+
+def add_commands(sub) -> None:
+    """Register the origin commands on pipeline.target_disease's subparsers."""
+    def pairs_option(p, default="pilot"):
+        p.add_argument("--pairs", choices=PAIR_SETS, default=default, help="which pairs to work on")
+
+    p = sub.add_parser("search", help="retrieve pre-entry PubMed and Europe PMC records per pair")
+    pairs_option(p)
+    p.add_argument("--redo", action="store_true", help="search pairs already searched")
+    p.add_argument("--max-records", type=int, default=None, help="keep only the earliest N records per service")
+    p.set_defaults(fn=search)
+    p = sub.add_parser("label", help="label the origin and discovery route of each pair from its sources")
+    pairs_option(p)
+    p.add_argument("--hide-provisional", action="store_true", help="do not show the model the provisional origin")
+    p.set_defaults(fn=_pending("label"))
+    p = sub.add_parser("check", help="second-model check of each graded label")
+    pairs_option(p)
+    p.set_defaults(fn=_pending("check"))
+    p = sub.add_parser("blind", help="second model labels a hand-check set from the records alone")
+    pairs_option(p, default="set_a")
+    p.set_defaults(fn=_pending("blind"))
+    sub.add_parser("sample", help="draw the pilot of 100 pairs and the two hand-check sets").set_defaults(fn=_pending("sample"))
+    p = sub.add_parser("package", help="write the reader's page for a hand-check set")
+    p.add_argument("--set", choices=["a", "b"], default="a")
+    p.add_argument("--out", required=True, help="path of the HTML file to write")
+    p.set_defaults(fn=_pending("package"))
+    p = sub.add_parser("gate", help="score the pilot against the reader's sheet")
+    p.add_argument("--hand-check", required=True, help="the reader's CSV")
+    p.add_argument("--reader", required=True, help="who read the set")
+    p.add_argument("--set", choices=["a", "b"], default="a")
+    p.set_defaults(fn=_pending("gate"))
+    p = sub.add_parser("summary", help="labels, grades, check outcomes and coverage")
+    pairs_option(p)
+    p.set_defaults(fn=_pending("summary"))

@@ -105,3 +105,21 @@ def test_bundle_takes_earliest_25_and_latest_15_without_repeats():
 def test_bundle_cuts_abstracts():
     b = to.bundle(to.ranked(rows_for(3)))
     assert all(len(r["abstract"]) == to.ABSTRACT_CHARS for r in b)
+
+
+# --- command line (pipeline.target_disease registers the origin commands) ---
+
+def test_cli_registers_every_command():
+    from pipeline import target_disease
+    ap = target_disease.parser()
+    a = ap.parse_args(["search", "--pairs", "window", "--redo", "--max-records", "3000"])
+    assert a.fn.__name__ == "search" and a.pairs == "window" and a.redo and a.max_records == 3000
+    assert ap.parse_args(["search"]).pairs == "pilot" and ap.parse_args(["search"]).max_records is None
+    a = ap.parse_args(["gate", "--hand-check", "x.csv", "--reader", "Stephen"])
+    assert a.fn.__name__ == "gate" and a.hand_check == "x.csv" and a.reader == "Stephen" and a.set == "a"
+    a = ap.parse_args(["package", "--set", "b", "--out", "p.html"])
+    assert a.fn.__name__ == "package" and a.set == "b" and a.out == "p.html"
+    assert ap.parse_args(["label", "--hide-provisional"]).hide_provisional
+    assert ap.parse_args(["blind"]).pairs == "set_a"
+    for cmd in ["check", "sample", "summary", "build", "provisional"]:
+        assert ap.parse_args([cmd]).fn.__name__ == cmd
