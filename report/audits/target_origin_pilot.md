@@ -190,3 +190,49 @@ sit in all three prompts, so the labeller is v2, the blind reader v3 and the che
 The pilot is relabelled under the aligned prompts before the full run, so that the gate is scored on the prompt the
 full run uses; the v1 labels and v2 readings stay on record, and v1 to v2 agreement on the 100 pairs is reported. This
 is the owner's definition change, not the registered single prompt revision, which stays unused.
+
+# Pilot under the aligned definitions (2026-11-20, 14:41 to 14:55)
+
+Same 100 pairs and the same records; labeller v2, blind reader v3, checker v3; migration 145 applied first; the gate
+scored on the label as read (`gate_origin` raw). Gate files: `target_origin_gate.json` (set b),
+`target_origin_gate_set_a.json`.
+
+## Labelling and check
+
+100 of 100 pairs decided (passes of 100, 7 and 1). Agreement of the v1 and v2 labels on the 100 pairs: κ 0.73, 76
+the same, 0.81 on the collapsed layer. The largest move is observational_biomarker to diseased_tissue (6 pairs), the
+boundary the alignment drew; then earlier_drug_other_disease to clinical_observation (3); ten other moves of one pair
+each. Origins under v2: diseased_tissue 22, earlier_drug_other_disease 16, animal_model_pharmacology 15, unclear 13,
+clinical_observation 11, human_cell_perturbation 9, observational_biomarker 5, human_genetics 4, mouse_genetics 3,
+tumour_genetics 1, curated_pathway 1. Grades: stated 35, pattern 52, none 13. Discovery route: derived from an
+existing active 28, repurposed drug 20, target screen 14, de novo design 6, unclear 32.
+
+Check v3 of the 87 graded labels: supported 72, unsupported 12, unverified 3 (v2 on the v1 labels: 55, 21, 14 of 90).
+`quote_found` yes 81, no 1, could_not_open 5; `year_ok` no 1, unknown 2; `origin_follows` yes 35, partly 42, no 10.
+The 12 unsupported: 8 where the origin does not follow from the quote, 2 could not open with the origin not
+following, 1 quote not found, 1 source dated in or after the cutoff. After the check 28 of 100 stored rows are
+unclear (13 graded none, 15 rejected).
+
+## Reference reading (v3, three replicates)
+
+| set | readings valid | unanimous | majority | no majority | pairwise agreement |
+|---|---|---|---|---|---|
+| b | 144 of 150 | 34 | 13 | 3 | 0.83 |
+| a | 148 of 150 | 36 | 12 | 2 | 0.82 |
+
+The v2 and v3 references agree at κ 0.80 on set b (38 of 46 pairs the same) and 0.79 on set a (36 of 44); the
+largest move is again observational_biomarker to diseased_tissue (4 and 3 pairs).
+
+## Gate
+
+| set | pairs | κ label as read | κ stored after check | κ layer, read / stored | κ with / without records (stored) | reference is primary or secondary | gap | pass |
+|---|---|---|---|---|---|---|---|---|
+| b | 47 | **0.65** | 0.55 | 0.65 / 0.54 | 0.44 / 0.65 | 0.77 | 8 | **yes** |
+| a | 48 | 0.69 | 0.54 | 0.68 / 0.53 | 0.53 / 0.53 | 0.77 | 8 | yes |
+
+Both gates pass on both sets. Against the first re-run, κ on the label as read moved from 0.70 to 0.65 on set b and
+from 0.68 to 0.69 on set a; κ on the stored origin rose from 0.43 to 0.55 and from 0.40 to 0.54 as the checker's reach
+grew (15 of 87 rejected, was 35 of 90). Tokens per decision over every version run on the pilot: label 4,247 in and
+2,078 out (299 decisions); reference reading 4,236 in and 1,053 out (739); check 773 in and 381 out (266).
+
+Step 4 is complete. The full run (step 5) starts only after its own announcement on #146.

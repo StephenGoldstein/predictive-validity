@@ -1314,8 +1314,15 @@ def gate(args) -> None:
                            args.hand_check], result)
         conn.commit()
     log(json.dumps(result, indent=2))
-    log(f"gate {'PASSED' if result['pass'] else 'FAILED'}: kappa {result['kappa_stored']} (min {KAPPA_MIN}), coverage gap "
-        f"{result['gap_points']} points (max {GAP_MAX}); written {GATE_JSON}")
+    log(gate_message(result) + f"; written {GATE_JSON}")
+
+
+def gate_message(result: dict) -> str:
+    """One line naming the kappa the gate is scored on (the label as read) and the stored-origin kappa beside it."""
+    fmt = lambda k: "None" if k is None else f"{k:.2f}"  # noqa: E731
+    return (f"gate {'PASSED' if result['pass'] else 'FAILED'}: kappa {fmt(result['kappa_raw'])} on the label as read "
+            f"(min {KAPPA_MIN}; stored {fmt(result['kappa_stored'])}), coverage gap {result['gap_points']} points "
+            f"(max {GAP_MAX})")
 
 
 def summary(args) -> None:

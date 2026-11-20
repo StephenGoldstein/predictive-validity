@@ -591,3 +591,10 @@ def test_gate_is_scored_on_the_labellers_label_as_read():
     reader, stored, raw = gate_frames(disagree=30)
     r = to.gate_result(reader, reader, raw, {"not_causal": 0.8, "other": 0.9}, None)  # stored agrees, the label did not
     assert r["kappa_stored"] == 1.0 and r["pass"] is False
+
+
+def test_gate_message_names_the_kappa_the_gate_is_scored_on():
+    r = {"pass": True, "kappa_raw": 0.651, "kappa_stored": 0.552, "gap_points": 8.0, "gate_origin": "raw"}
+    m = to.gate_message(r)
+    assert m.startswith("gate PASSED") and "0.65" in m and "label as read" in m and "stored 0.55" in m
+    assert to.gate_message({**r, "pass": False, "kappa_raw": None}).startswith("gate FAILED: kappa None")
