@@ -996,15 +996,141 @@ def package(args) -> None:
     log(f"{len(rows)} pairs, {sum(len(r['records']) for r in rows)} records, {len(page.encode()) / 1e6:.1f} MB -> {args.out}")
 
 
+# --- gate and summary ---
+
+LAYER = {"human_genetics": "genetics", "tumour_genetics": "genetics",
+         "diseased_tissue": "tissue_biomarker", "observational_biomarker": "tissue_biomarker",
+         "mouse_genetics": "model_systems", "curated_pathway": "model_systems", "cell_screen": "model_systems",
+         "human_cell_perturbation": "model_systems", "animal_model_pharmacology": "model_systems",
+         "earlier_drug_other_disease": "earlier_drug",
+         "clinical_observation": "clinical_phenotypic", "phenotypic_screen": "clinical_phenotypic",
+         "unclear": "unclear"}
+KAPPA_MIN = 0.6
+GAP_MAX = 10.0
+GATE_JSON = os.path.join(frame.REPO, "report", "audits", "target_origin_gate.json")
+GATE_METHOD = "target_origin_pilot@v1"
+GATE_DESCRIPTION = f"""Pilot gates of the origin labelling (#146 step 4, registered 2026-11-19). Agreement: Cohen's kappa
+between the reader's origin and the stored origin after the second-model check, over the 13 categories, on one
+hand-check set; must be at least {KAPPA_MIN}. Coverage: the share of pilot pairs with at least one pre-entry record,
+in the group with a settled "not causal" stop and the group without; the gap must be at most {GAP_MAX} points. Also
+reported, never gating: kappa on the labeller's raw origin, both on the collapsed layer, agreement with the labeller's
+primary or secondary origin, and the blind second coder's kappa against the reader and the labeller."""
+
+
+def kappa(a: pd.Series, b: pd.Series) -> float | None:
+    from sklearn.metrics import cohen_kappa_score
+    if len(a) < 2:
+        return None
+    if list(a) == list(b):
+        return 1.0
+    return float(cohen_kappa_score(list(a), list(b)))
+
+
+def gate_result(reader: pd.DataFrame, stored: pd.DataFrame, raw: pd.DataFrame, coverage: dict[str, float],
+                blind: pd.DataFrame | None, kappa_min: float = KAPPA_MIN, gap_max: float = GAP_MAX) -> dict:
+    """The gate statistics for one hand-check set. reader: ensembl_id, mondo_id, origin; stored: the same after the
+    check; raw: the labeller's origin and secondary_origin; coverage: group -> share of pairs with a record; blind:
+    ensembl_id, mondo_id, blind_origin, or None."""
+    on = ["ensembl_id", "mondo_id"]
+    m = reader[on + ["origin"]].merge(stored[on + ["origin"]].rename(columns={"origin": "stored"}), on=on) \
+        .merge(raw[on + ["origin", "secondary_origin"]].rename(columns={"origin": "raw"}), on=on)
+    layer = lambda s: s.map(LAYER)
+    gap = abs(coverage["not_causal"] - coverage["other"]) * 100
+    out = {"n": len(m), "kappa_stored": kappa(m.origin, m.stored), "kappa_raw": kappa(m.origin, m.raw),
+           "kappa_stored_layer": kappa(layer(m.origin), layer(m.stored)),
+           "kappa_raw_layer": kappa(layer(m.origin), layer(m.raw)),
+           "any_origin_agree": float(((m.origin == m.raw) | (m.origin == m.secondary_origin)).mean()) if len(m) else None,
+           "coverage": {k: float(v) for k, v in coverage.items()}, "gap_points": round(gap, 2),
+           "kappa_blind_vs_reader": None, "kappa_blind_vs_raw": None}
+    if blind is not None:
+        b = m.merge(blind[on + ["blind_origin"]], on=on)
+        out["kappa_blind_vs_reader"] = kappa(b.origin, b.blind_origin)
+        out["kappa_blind_vs_raw"] = kappa(b.raw, b.blind_origin)
+        out["n_blind"] = len(b)
+    out["pass"] = bool(out["kappa_stored"] is not None and out["kappa_stored"] >= kappa_min and gap <= gap_max)
+    return out
+
+
+def coverage_by_group() -> dict[str, float]:
+    """Share of pilot pairs, per group, with at least one stored pre-entry record."""
+    pilot = pd.read_csv(PILOT_CSV, dtype=str)
+    have = frame.query("SELECT DISTINCT ensembl_id, mondo_id FROM preclin.target_disease_source")
+    have = set(zip(have.ensembl_id, have.mondo_id))
+    pilot["covered"] = [(e, m) in have for e, m in zip(pilot.ensembl_id, pilot.mondo_id)]
+    return pilot.groupby("group").covered.mean().to_dict()
+
+
+def decision_origins(task: str, column: str) -> pd.DataFrame:
+    d = llm.latest_decisions(task, "v1")
+    if d.empty:
+        return pd.DataFrame(columns=["ensembl_id", "mondo_id", column, "secondary_origin"])
+    d[["ensembl_id", "mondo_id"]] = pd.DataFrame([split_key(k) for k in d.key], index=d.index)
+    d[column] = [o["origin"] for o in d.parsed_output]
+    d["secondary_origin"] = [o.get("secondary_origin") for o in d.parsed_output]
+    return d[["ensembl_id", "mondo_id", column, "secondary_origin"]]
+
+
+def gate(args) -> None:
+    import json
+    reader = pd.read_csv(args.hand_check, dtype=str)
+    missing = {"ensembl_id", "mondo_id", "origin"} - set(reader.columns)
+    if missing:
+        raise SystemExit(f"{args.hand_check} lacks columns {sorted(missing)}")
+    reader = reader[reader.origin.notna() & reader.origin.ne("")]
+    bad = sorted(set(reader.origin) - set(ORIGINS))
+    if bad:
+        raise SystemExit(f"origins outside the list: {bad}")
+    pairs = pair_frame(f"set_{args.set}")
+    stored = frame.query("""SELECT ensembl_id, mondo_id, origin FROM preclin.target_disease_origin
+                            WHERE basis = 'labelled' AND (ensembl_id, mondo_id) IN %s""",
+                         (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
+    raw = decision_origins(LABEL_TASK.name, "origin")
+    blind = decision_origins(BLIND_TASK.name, "blind_origin")
+    blind = blind[["ensembl_id", "mondo_id", "blind_origin"]] if len(blind) else None
+    result = gate_result(reader, stored, raw, coverage_by_group(), blind)
+    result.update({"set": args.set, "reader": args.reader, "read_pairs": len(reader),
+                   "labelled_in_set": len(stored), "kappa_min": KAPPA_MIN, "gap_max": GAP_MAX})
+    with open(GATE_JSON, "w") as f:
+        json.dump(result, f, indent=2)
+    with llm.connect() as conn, conn.cursor() as cur:
+        llm.record_method(cur, GATE_METHOD, "Pilot gates of the origin labelling", GATE_DESCRIPTION,
+                          ["preclin.target_disease_origin", "preclin.target_disease_source", "pv_evidence.llm_decision",
+                           args.hand_check], result)
+        conn.commit()
+    log(json.dumps(result, indent=2))
+    log(f"gate {'PASSED' if result['pass'] else 'FAILED'}: kappa {result['kappa_stored']} (min {KAPPA_MIN}), coverage gap "
+        f"{result['gap_points']} points (max {GAP_MAX}); written {GATE_JSON}")
+
+
+def summary(args) -> None:
+    pairs = pair_frame(args.pairs)
+    on = ["ensembl_id", "mondo_id"]
+    o = frame.query("""SELECT ensembl_id, mondo_id, origin, grade, check_outcome, discovery_route
+                       FROM preclin.target_disease_origin WHERE basis = 'labelled' AND (ensembl_id, mondo_id) IN %s""",
+                    (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
+    have = frame.query("SELECT ensembl_id, mondo_id, count(*) AS records FROM preclin.target_disease_source "
+                       "WHERE (ensembl_id, mondo_id) IN %s GROUP BY 1, 2", (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
+    p = pairs.merge(have, on=on, how="left").fillna({"records": 0})
+    log(f"{len(pairs)} pairs in {args.pairs}: {int((p.records > 0).sum())} with records "
+        f"(median {int(p.records.median())}, max {int(p.records.max())}); {len(o)} labelled")
+    if "group" in p.columns:
+        log("coverage by group:\n" + p.groupby("group").records.apply(lambda r: (r > 0).mean()).round(3).to_string())
+    if len(o):
+        for col in ["origin", "grade", "check_outcome", "discovery_route"]:
+            log(f"{col}:\n" + o[col].value_counts(dropna=False).to_string())
+        if "group" in p.columns:
+            log(pd.crosstab(o.merge(p[on + ["group"]], on=on).group, o.origin).to_string())
+    usage = frame.query("""SELECT d.task, count(*) AS n, avg((d.usage->>'input_tokens')::float) AS input_tokens,
+                                  avg((d.usage->>'output_tokens')::float) AS output_tokens
+                           FROM pv_evidence.llm_decision d
+                           WHERE d.task IN %s AND d.subject_key IN %s GROUP BY 1""",
+                        ((LABEL_TASK.name, CHECK_TASK.name, BLIND_TASK.name),
+                         tuple(key(e, m) for e, m in zip(pairs.ensembl_id, pairs.mondo_id))))
+    if len(usage):
+        log("tokens per decision:\n" + usage.round(0).to_string(index=False))
+
+
 # --- command line ---
-
-def _pending(name: str):
-    """A command registered before its task lands; it carries the command's name so the CLI test reads it."""
-    def fn(args) -> None:
-        raise NotImplementedError(f"{name} is not built yet")
-    fn.__name__ = name
-    return fn
-
 
 def add_commands(sub) -> None:
     """Register the origin commands on pipeline.target_disease's subparsers."""
@@ -1035,7 +1161,7 @@ def add_commands(sub) -> None:
     p.add_argument("--hand-check", required=True, help="the reader's CSV")
     p.add_argument("--reader", required=True, help="who read the set")
     p.add_argument("--set", choices=["a", "b"], default="a")
-    p.set_defaults(fn=_pending("gate"))
+    p.set_defaults(fn=gate)
     p = sub.add_parser("summary", help="labels, grades, check outcomes and coverage")
     pairs_option(p)
-    p.set_defaults(fn=_pending("summary"))
+    p.set_defaults(fn=summary)

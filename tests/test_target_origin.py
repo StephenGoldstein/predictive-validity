@@ -306,3 +306,47 @@ def test_package_holds_every_pair_and_no_label():
     assert "Definitions here." in html and "mouse_genetics" in html  # the provisional origin the model also saw
     assert "retrieved_urls" not in html and "labelled" not in html and "diseased_tissue</option>" in html
     assert "<title>Target origin hand check" in html and len(html.encode()) < 16_000_000
+
+
+# --- gate ---
+
+def test_every_origin_has_a_layer():
+    assert set(to.LAYER) == set(to.ORIGINS)
+    assert to.LAYER["human_genetics"] == to.LAYER["tumour_genetics"] == "genetics"
+    assert to.LAYER["diseased_tissue"] == to.LAYER["observational_biomarker"]
+    assert to.LAYER["unclear"] == "unclear"
+
+
+def gate_frames(disagree: int):
+    keys = [(f"ENSG{i:03d}", "MONDO:1") for i in range(50)]
+    origins = [to.ORIGINS[i % 12] for i in range(50)]  # every category but unclear, in rotation
+    reader = pd.DataFrame([(e, m, o) for (e, m), o in zip(keys, origins)], columns=["ensembl_id", "mondo_id", "origin"])
+    stored_origins = list(origins)
+    for i in range(disagree):
+        stored_origins[i] = to.ORIGINS[(i + 1) % 12]
+    stored = pd.DataFrame([(e, m, o) for (e, m), o in zip(keys, stored_origins)],
+                          columns=["ensembl_id", "mondo_id", "origin"])
+    raw = pd.DataFrame([(e, m, o, None) for (e, m), o in zip(keys, stored_origins)],
+                       columns=["ensembl_id", "mondo_id", "origin", "secondary_origin"])
+    return reader, stored, raw
+
+
+def test_gate_passes_at_kappa_point_six_and_gap_ten():
+    from sklearn.metrics import cohen_kappa_score
+    reader, stored, raw = gate_frames(disagree=10)
+    expected = cohen_kappa_score(reader.origin, stored.origin)
+    r = to.gate_result(reader, stored, raw, {"not_causal": 0.80, "other": 0.90}, None)
+    assert r["n"] == 50 and abs(r["kappa_stored"] - expected) < 1e-9 and r["kappa_raw"] == r["kappa_stored"]
+    assert r["gap_points"] == 10.0 and r["pass"] is True and r["kappa_blind_vs_reader"] is None
+    assert 0 < r["any_origin_agree"] <= 1
+    assert to.gate_result(reader, stored, raw, {"not_causal": 0.78, "other": 0.90}, None)["pass"] is False
+    reader, stored, raw = gate_frames(disagree=30)
+    assert to.gate_result(reader, stored, raw, {"not_causal": 0.80, "other": 0.90}, None)["pass"] is False
+
+
+def test_gate_reports_blind_kappas_only_when_given():
+    reader, stored, raw = gate_frames(disagree=0)
+    blind = reader.rename(columns={"origin": "blind_origin"})
+    r = to.gate_result(reader, stored, raw, {"not_causal": 0.9, "other": 0.9}, blind)
+    assert r["kappa_blind_vs_reader"] == 1.0 and r["kappa_blind_vs_raw"] == 1.0
+    assert r["kappa_stored_layer"] == 1.0
