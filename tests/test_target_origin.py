@@ -598,3 +598,144 @@ def test_gate_message_names_the_kappa_the_gate_is_scored_on():
     m = to.gate_message(r)
     assert m.startswith("gate PASSED") and "0.65" in m and "label as read" in m and "stored 0.55" in m
     assert to.gate_message({**r, "pass": False, "kappa_raw": None}).startswith("gate FAILED: kappa None")
+
+
+# --- check v2: facts in code, judgment by agreement (#146 note of 2026-11-21) ---
+
+def cpayload(origin="diseased_tissue", sources=("PMID:1",), records=((2005,),), cutoff=2010, **kw) -> dict:
+    return {"ensembl_id": "ENSG1", "mondo_id": "MONDO:1", "symbol": "ABC", "disease": "a disease",
+            "cutoff_year": cutoff, "origin": origin, "origin_year": 2005, "secondary_origin": None, "grade": "stated",
+            "quote": "q", "sources": list(sources), "source_years": [2005] * len(sources),
+            "records": [{"record_id": f"PMID:{i + 1}", "year": y, "title": "t", "abstract": "a", "url": None}
+                        for i, (y,) in enumerate(records)],
+            "label_decision_id": 1, **kw}
+
+
+def cout(quote="yes", year="yes", follows="yes", note="") -> dict:
+    return {"quote_found": quote, "year_ok": year, "origin_follows": follows, "note": note}
+
+
+def test_checkers_are_sonnet_v3_and_opus_v4_on_the_same_text():
+    s, o = to.CHECKERS
+    assert s is to.CHECK_TASK and s.model == "claude-sonnet-5-5" and s.prompt_version == "v3"
+    assert o.model == "claude-opus-5-5" and o.prompt_version == "v4" and o.system == s.system and o.tools == s.tools
+    assert to.CHECK_METHOD == "target_origin_check@v2"
+    assert to.CHECK_OUTCOMES == ("supported", "unsupported", "unverified", "disputed", "not_checked")
+
+
+@pytest.mark.parametrize("a, b, expected", [
+    ("yes", "yes", "yes"), ("no", "no", "no"), ("yes", "no", "disputed"), ("no", "yes", "disputed"),
+    ("yes", "could_not_open", "yes"), ("could_not_open", "no", "no"),
+    ("could_not_open", "could_not_open", "unverified"), ("yes", None, "disputed"), (None, None, "disputed"),
+])
+def test_agree(a, b, expected):
+    assert to.agree(a, b, "could_not_open") == expected
+
+
+def test_check_fields_judgment_by_agreement_and_partly_counts_as_yes():
+    f = to.check_fields(cpayload(), None, [cout(follows="partly"), cout(follows="yes")], None)
+    assert f == {"quote": "yes", "year": "yes", "category": "yes", "fact": None}
+    assert to.check_fields(cpayload(), None, [cout(follows="no"), cout(follows="partly")], None)["category"] == "disputed"
+    assert to.check_fields(cpayload(), None, [cout(quote="no"), cout(quote="no")], None)["quote"] == "no"
+
+
+def test_check_fields_year_is_read_from_the_records_in_code():
+    assert to.check_fields(cpayload(records=((2010,),)), None, [cout(), cout()], None)["year"] == "no"
+    # no URL source: the records decide and the checkers' field is not consulted
+    assert to.check_fields(cpayload(), None, [cout(year="no"), cout(year="unknown")], None)["year"] == "yes"
+    # a URL source: the checkers decide where they agree; unknown carries no information
+    p = cpayload(sources=("PMID:1", "https://x"))
+    assert to.check_fields(p, None, [cout(year="unknown"), cout(year="no")], None)["year"] == "no"
+    assert to.check_fields(p, None, [cout(year="yes"), cout(year="no")], None)["year"] == "disputed"
+    assert to.check_fields(p, None, [cout(year="unknown"), cout(year="unknown")], None)["year"] == "unverified"
+
+
+def test_check_fields_earlier_drug_takes_the_category_from_the_approval_fact():
+    p = cpayload(origin="earlier_drug_other_disease")
+    assert to.check_fields(p, "unrelated", [cout(follows="no"), cout(follows="no")], None)["category"] == "yes"
+    assert to.check_fields(p, "related", [cout(), cout()], None)["category"] == "no"
+    f = to.check_fields(p, "none", [cout(), cout()], None)
+    assert f["category"] == "disputed" and f["fact"] == "none"
+
+
+def test_check_fields_a_human_verdict_settles_a_dispute():
+    f = to.check_fields(cpayload(), None, [cout(follows="no"), cout(follows="yes")], {"category": "yes"})
+    assert f["category"] == "yes"
+    p = cpayload(origin="earlier_drug_other_disease")
+    assert to.check_fields(p, "none", [cout(), cout()], {"category": "no"})["category"] == "no"
+
+
+def test_check_fields_with_one_checker_missing_is_disputed_unless_the_code_decided():
+    f = to.check_fields(cpayload(), None, [cout()], None)
+    assert f == {"quote": "disputed", "year": "yes", "category": "disputed", "fact": None}
+
+
+@pytest.mark.parametrize("fields, outcome", [
+    ({"quote": "yes", "year": "yes", "category": "yes"}, "supported"),
+    ({"quote": "disputed", "year": "no", "category": "yes"}, "unsupported"),
+    ({"quote": "disputed", "year": "unverified", "category": "yes"}, "disputed"),
+    ({"quote": "unverified", "year": "yes", "category": "yes"}, "unverified"),
+])
+def test_check_outcome_v2(fields, outcome):
+    assert to.check_outcome_v2({**fields, "fact": None}) == outcome
+
+
+def test_check_update_sql_resets_the_origin_unless_supported():
+    assert "origin = 'unclear'" not in to.CHECK_UPDATE_SQL["supported"]
+    for outcome in ("unsupported", "unverified", "disputed"):
+        assert "origin = 'unclear'" in to.CHECK_UPDATE_SQL[outcome]
+    assert all("check_fields" in sql for sql in to.CHECK_UPDATE_SQL.values())
+
+
+def test_approval_fact_from_the_dated_index():
+    from types import SimpleNamespace as NS
+    ent = pd.DataFrame({"genes": [["G1"], ["G2"]]}, index=pd.Index([10, 20], name="moiety_id"))
+    ev = NS(ent=ent, first_approval={"G1": pd.Timestamp("2001-01-01")},
+            approved={"G1": [("MONDO:9", pd.Timestamp("2001-01-01"))]},
+            nb=NS(terms=lambda m, rel: {"MONDO:9"} if m == "MONDO:1" else set()))
+    entry = pd.Timestamp("2008-01-01")
+    assert to.approval_fact(ev, 10, "MONDO:1", entry) == "related"
+    assert to.approval_fact(ev, 10, "MONDO:2", entry) == "unrelated"
+    assert to.approval_fact(ev, 20, "MONDO:1", entry) == "none"
+    assert to.approval_fact(ev, 10, "MONDO:2", pd.Timestamp("2000-06-01")) == "none"  # the approval came after entry
+    programs = pd.DataFrame({"ensembl_id": ["ENSG1", "ENSG2"], "mondo_id": ["MONDO:1"] * 2, "moiety_id": [10, 20],
+                             "entry": [entry, entry]})
+    items = {"ENSG1|MONDO:1": cpayload(origin="earlier_drug_other_disease"),
+             "ENSG2|MONDO:1": cpayload(origin="earlier_drug_other_disease", ensembl_id="ENSG2"),
+             "ENSG1|MONDO:2": cpayload(origin="diseased_tissue", mondo_id="MONDO:2")}
+    assert to.approval_facts(items, programs, ev) == {"ENSG1|MONDO:1": "related", "ENSG2|MONDO:1": "none",
+                                                      "ENSG1|MONDO:2": None}
+
+
+def test_dispute_sheet_round_trip(tmp_path):
+    items = {"ENSG1|MONDO:1": cpayload(),
+             "ENSG2|MONDO:1": cpayload(origin="earlier_drug_other_disease", ensembl_id="ENSG2")}
+    fields = {"ENSG1|MONDO:1": {"quote": "yes", "year": "disputed", "category": "disputed", "fact": None},
+              "ENSG2|MONDO:1": {"quote": "yes", "year": "yes", "category": "disputed", "fact": "none"}}
+    outputs = {"ENSG1|MONDO:1": [("claude-sonnet-5-5", cout(year="no", follows="no", note="s")),
+                                 ("claude-opus-5-5", cout(note="o"))],
+               "ENSG2|MONDO:1": [("claude-sonnet-5-5", cout(note="s2")), ("claude-opus-5-5", cout(note="o2"))]}
+    programs = pd.DataFrame({"ensembl_id": ["ENSG1", "ENSG2"], "mondo_id": ["MONDO:1"] * 2,
+                             "entity": ["drug a", "drug b"], "entry": [pd.Timestamp("2008-01-01")] * 2})
+    sheet = to.dispute_sheet(items, fields, outputs, programs)
+    assert list(zip(sheet.subject_key, sheet.field)) == [("ENSG1|MONDO:1", "year"), ("ENSG1|MONDO:1", "category"),
+                                                         ("ENSG2|MONDO:1", "category")]
+    assert sheet.iloc[0].sonnet == "no" and sheet.iloc[0].sonnet_note == "s" and sheet.iloc[0].opus == "yes"
+    assert sheet.iloc[1].sonnet == "no" and sheet.iloc[1].opus == "yes"  # the checkers' own words on the field
+    assert sheet.iloc[2].fact == "none" and sheet.iloc[2].first_drug == "drug b"
+    assert "unrelated disease" in sheet.iloc[2].definition and sheet.iloc[2].entry == "2008-01-01"
+    assert (sheet.verdict == "").all()
+    path = tmp_path / "d.csv"
+    to.write_sheet(path, sheet)
+    assert to.read_disputes(path) == {}
+    s = pd.read_csv(path, dtype=str).fillna("")
+    s.loc[0, "verdict"], s.loc[0, "reader"] = "yes", "sg"
+    s.to_csv(path, index=False)
+    assert to.read_disputes(path) == {"ENSG1|MONDO:1": {"year": "yes"}}
+    to.write_sheet(path, sheet)  # a rewrite keeps the verdicts already given
+    s = pd.read_csv(path, dtype=str).fillna("")
+    assert s.loc[0, "verdict"] == "yes" and s.loc[0, "reader"] == "sg" and s.loc[1, "verdict"] == ""
+    s.loc[1, "verdict"] = "maybe"
+    s.to_csv(path, index=False)
+    with pytest.raises(SystemExit):
+        to.read_disputes(path)

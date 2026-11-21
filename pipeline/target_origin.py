@@ -18,12 +18,13 @@ set: search, label, check, blind, gate; `label` rewrites its rows as not_checked
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
 from collections.abc import Callable
 
 import pandas as pd
-from psycopg2.extras import execute_values
+from psycopg2.extras import Json, execute_values
 
 from pipeline import attribution, literature, llm
 from pipeline.literature import names_clause
@@ -520,8 +521,9 @@ turn, dated before the cutoff year; a label breaking a rule is stored invalid an
 {LABEL_PASSES} times. Rows replace earlier labelled rows for the decided pairs only."""
 
 
-def first_programs(pairs: pd.DataFrame) -> dict[tuple[str, str], dict]:
-    """The first program to test each pair: entity, sponsor, phase, entry date, NCT ids of the trials marking it."""
+def first_program_rows(pairs: pd.DataFrame) -> pd.DataFrame:
+    """The first program to test each pair, one row per pair: ensembl_id, mondo_id, program_id, moiety_id, phase,
+    entry, entity, lead_sponsors."""
     from pipeline.target_disease import (
         EARLY,  # the hub module registers this one; import here, not at the top
     )
@@ -535,16 +537,23 @@ def first_programs(pairs: pd.DataFrame) -> dict[tuple[str, str], dict]:
     d = rows.merge(progs, on="program_id").merge(t, on="moiety_id")
     d = d.sort_values(["ens", "mondo_id", "entry", "program_id"]).drop_duplicates(["ens", "mondo_id"])
     want = set(zip(pairs.ensembl_id, pairs.mondo_id))
-    d = d[[(e, m) in want for e, m in zip(d.ens, d.mondo_id)]]
+    d = d[[(e, m) in want for e, m in zip(d.ens, d.mondo_id)]].rename(columns={"ens": "ensembl_id"})
     names = frame.query("SELECT moiety_id, name FROM preclin.moiety").set_index("moiety_id").name.to_dict()
+    d["entity"] = [names.get(m, str(m)) for m in d.moiety_id]
+    return d.reset_index(drop=True)
+
+
+def first_programs(pairs: pd.DataFrame) -> dict[tuple[str, str], dict]:
+    """The first program to test each pair: entity, sponsor, phase, entry date, NCT ids of the trials marking it."""
+    d = first_program_rows(pairs)
     trials = frame.program_trials()
     trials = trials[trials.marks_entry]
     out = {}
     for r in d.itertuples():
         ncts = trials[(trials.program_id == r.program_id) & (trials.phase == r.phase)].nct_id.tolist()[:3]
-        out[(r.ens, r.mondo_id)] = {"entity": names.get(r.moiety_id, str(r.moiety_id)),
-                                   "sponsor": (list(r.lead_sponsors or []) or [None])[0], "phase": int(r.phase),
-                                   "entry": str(pd.Timestamp(r.entry).date()), "nct_ids": ncts}
+        out[(r.ensembl_id, r.mondo_id)] = {"entity": r.entity,
+                                          "sponsor": (list(r.lead_sponsors or []) or [None])[0], "phase": int(r.phase),
+                                          "entry": str(pd.Timestamp(r.entry).date()), "nct_ids": ncts}
     return out
 
 
@@ -677,7 +686,9 @@ CHECK_SCHEMA = {
 }
 # v3: the labeller's search and fetch, after a fetch-only checker (v2) could not open 18 of the 35 labels it rejected
 CHECK_TOOLS = TOOLS
-CHECK_METHOD = "target_origin_check@v1"
+CHECK_METHOD = "target_origin_check@v2"  # v1: one checker (Sonnet 5.5, prompt v3) decided every field; see CHECK_DESCRIPTION
+CHECK_OUTCOMES = ("supported", "unsupported", "unverified", "disputed", "not_checked")
+CHECK_FIELDS = ("quote", "year", "category")
 
 
 def render_check(p: dict) -> str:
@@ -700,20 +711,194 @@ CHECK_TASK = llm.Task(name="target_origin_check", prompt_version="v3", schema_ve
                       schema=CHECK_SCHEMA, render=render_check, validate=None, subject_type="target_disease",
                       model="claude-sonnet-5-5", effort="medium", max_tokens=4000, tools=CHECK_TOOLS)
 
-CHECK_DESCRIPTION = f"""For each graded labelled row of {LABEL_METHOD}: task {CHECK_TASK.name} {CHECK_TASK.prompt_version}
-({CHECK_TASK.model}, web search and fetch) reads the label, its quote and sources, and the full text of the cited records,
-and says whether the quote is in a source, whether every source is dated before the cutoff year, and whether the
-origin follows. supported: all three hold (origin_follows yes or partly); unsupported: any is no; unverified: a URL
-could not be opened or dated and nothing is no. An unsupported or unverified row is rewritten as unclear (grade none,
-no quote, no sources); its label stays in llm_decision_id's decision. Unclear labels are not checked."""
+# The same text under Opus 5.5. The model is not part of a decision's reuse key, so the prompt version keeps the two
+# checkers' decisions apart (v4 = the v3 text, Opus).
+OPUS_CHECK_TASK = dataclasses.replace(CHECK_TASK, model="claude-opus-5-5", prompt_version="v4")
+CHECKERS = (CHECK_TASK, OPUS_CHECK_TASK)
+
+CHECK_DESCRIPTION = f"""For each graded labelled row of {LABEL_METHOD} (#146 note of 2026-11-21: facts in code, judgment
+by agreement). Two checkers, task {CHECK_TASK.name} {CHECK_TASK.prompt_version} ({CHECK_TASK.model}) and
+{OPUS_CHECK_TASK.prompt_version} ({OPUS_CHECK_TASK.model}, the same text), each with web search and fetch, read the
+label, its quote and sources, and the full text of the cited records, and say whether the quote is in a source,
+whether every source is dated before the cutoff year, and whether the origin follows. Three fields are then settled:
+quote, from the two answers where they agree (could_not_open carries no information); year, no when a cited record is
+dated in or after the cutoff year, yes when every source is a record, else from the two answers where they agree
+(unknown carries no information); category, for earlier_drug_other_disease from the dated Drugs@FDA index of
+approvals on the target before entry (report.section3.Evidence: unrelated yes, related no since the pair is then
+validated at entry and not an origin, none disputed), for every other origin from the two answers where they agree
+(partly counts as yes). A field the checkers disagree on, or that one of them did not answer, is disputed until a human
+verdict from the disputes sheet settles it. supported: no field is no, disputed or unverified; unsupported: a field
+is no; disputed: a field is disputed; unverified: a field is unverified. A row that is not supported is rewritten as
+unclear (grade none, no quote, no sources); its label stays in llm_decision_id's decision; check_fields records the
+fields, the approval fact, both decisions and the human verdicts applied. Unclear labels are not checked."""
+
+_CHECK_SET = "check_outcome = %s, check_decision_id = %s, check_fields = %s"
+_CHECK_WHERE = "WHERE basis = 'labelled' AND (ensembl_id, mondo_id) = (%s, %s)"
+CHECK_UPDATE_SQL = {
+    "supported": f"UPDATE preclin.target_disease_origin SET {_CHECK_SET} {_CHECK_WHERE}",
+    **{o: (f"UPDATE preclin.target_disease_origin SET {_CHECK_SET}, origin = 'unclear', grade = 'none', "
+           f"origin_year = NULL, secondary_origin = NULL, quote = NULL, sources = '{{}}' {_CHECK_WHERE}")
+       for o in ("unsupported", "unverified", "disputed")},
+}
 
 
 def check_outcome(out: dict) -> str:
+    """One checker's answer alone (method v1; kept for the audits that compare the two checkers)."""
     if out["quote_found"] == "no" or out["year_ok"] == "no" or out["origin_follows"] == "no":
         return "unsupported"
     if out["quote_found"] == "could_not_open" or out["year_ok"] == "unknown":
         return "unverified"
     return "supported"
+
+
+def agree(a: str | None, b: str | None, no_info: str) -> str:
+    """Two checkers' answers to one field: the answer they share; the informative one when the other carries no
+    information (no_info); unverified when neither does; disputed when they differ or one is missing."""
+    if a is None or b is None:
+        return "disputed"
+    if a == no_info and b == no_info:
+        return "unverified"
+    if a == no_info:
+        return b
+    if b == no_info:
+        return a
+    return a if a == b else "disputed"
+
+
+FACT_CATEGORY = {"unrelated": "yes", "related": "no", "none": "disputed"}
+
+
+def check_fields(p: dict, fact: str | None, outputs: list[dict], human: dict[str, str] | None) -> dict:
+    """The three fields of a label from the checkers' answers, the approval fact and the human verdicts (applied
+    only where the checkers left the field disputed): quote, year, category each yes, no, unverified or disputed;
+    fact as given."""
+    a, b = (list(outputs) + [None, None])[:2]
+    get = lambda o, f: None if o is None else o[f]
+    quote = agree(get(a, "quote_found"), get(b, "quote_found"), "could_not_open")
+    cutoff = p["cutoff_year"]
+    if any(r.get("year") is not None and r["year"] >= cutoff for r in p["records"]):
+        year = "no"
+    elif not any(str(s).startswith("http") for s in p["sources"]):
+        year = "yes"
+    else:
+        year = agree(get(a, "year_ok"), get(b, "year_ok"), "unknown")
+    if fact is not None:
+        category = FACT_CATEGORY[fact]
+    else:
+        follows = lambda o: None if o is None else ("no" if o["origin_follows"] == "no" else "yes")
+        category = agree(follows(a), follows(b), "")
+    fields = {"quote": quote, "year": year, "category": category}
+    for f, v in (human or {}).items():
+        if fields.get(f) == "disputed":
+            fields[f] = v
+    return {**fields, "fact": fact}
+
+
+def check_outcome_v2(fields: dict) -> str:
+    answers = [fields[f] for f in CHECK_FIELDS]
+    if "no" in answers:
+        return "unsupported"
+    if "disputed" in answers:
+        return "disputed"
+    if "unverified" in answers:
+        return "unverified"
+    return "supported"
+
+
+def approval_fact(ev, moiety_id: int, mondo_id: str, entry: pd.Timestamp) -> str:
+    """Whether a drug on the entity's primary targets was FDA-approved before entry, from report.section3.Evidence's
+    dated index (Drugs@FDA through the programs): related when one of its approved diseases is related to mondo_id
+    (Lin at least 0.5, the chart's b1 line), unrelated when approvals exist but none is related (the chart's
+    approved_unrelated_only line), none otherwise."""
+    from report.section3 import RELATED
+    if moiety_id not in ev.ent.index:
+        return "none"
+    genes = ev.ent.at[moiety_id, "genes"]
+    related = ev.nb.terms(mondo_id, RELATED)
+    if any(d in related and when < entry for g in genes for d, when in ev.approved.get(g, ())):
+        return "related"
+    if any(ev.first_approval.get(g, pd.Timestamp.max) < entry for g in genes):
+        return "unrelated"
+    return "none"
+
+
+def approval_facts(items: dict[str, dict], programs: pd.DataFrame, ev) -> dict[str, str | None]:
+    """subject_key -> the approval fact of each earlier_drug_other_disease label, from the pair's first program
+    (first_program_rows) and the index; None for every other origin."""
+    prog = {(r.ensembl_id, r.mondo_id): (int(r.moiety_id), pd.Timestamp(r.entry)) for r in programs.itertuples()}
+    out = {}
+    for k, p in items.items():
+        if p["origin"] != "earlier_drug_other_disease":
+            out[k] = None
+            continue
+        pr = prog.get((p["ensembl_id"], p["mondo_id"]))
+        out[k] = approval_fact(ev, pr[0], p["mondo_id"], pr[1]) if pr else "none"
+    return out
+
+
+DISPUTE_COLUMNS = ["subject_key", "symbol", "disease", "cutoff_year", "origin", "grade", "definition", "quote",
+                   "sources", "field", "fact", "first_drug", "entry", "sonnet", "sonnet_note", "opus", "opus_note",
+                   "verdict", "reader", "note"]
+DISPUTE_ANSWER = {"quote": "quote_found", "year": "year_ok", "category": "origin_follows"}
+
+
+def definition_of(origin: str) -> str:
+    return next(ln.split(": ", 1)[1] for ln in DEFINITIONS.splitlines() if ln.startswith(f"- {origin}: "))
+
+
+def dispute_sheet(items: dict[str, dict], fields: dict[str, dict], outputs: dict[str, list[tuple[str, dict]]],
+                  programs: pd.DataFrame) -> pd.DataFrame:
+    """One row per disputed field of a label, for a human read: the label, its definition, quote and sources, the
+    approval fact and first drug where the fact is in question, and each checker's answer and note; verdict (yes or
+    no), reader and note are left empty for the reader."""
+    prog = {(r.ensembl_id, r.mondo_id): r for r in programs.itertuples()}
+    rows = []
+    for k in sorted(items):
+        p, f = items[k], fields[k]
+        by_model = dict(outputs.get(k, []))
+        pr = prog.get((p["ensembl_id"], p["mondo_id"]))
+        for field in CHECK_FIELDS:
+            if f[field] != "disputed":
+                continue
+            def ans(model, key, by_model=by_model):
+                return (by_model.get(model) or {}).get(key, "")
+            rows.append({"subject_key": k, "symbol": p["symbol"], "disease": p["disease"],
+                         "cutoff_year": p["cutoff_year"], "origin": p["origin"], "grade": p["grade"],
+                         "definition": definition_of(p["origin"]), "quote": p["quote"],
+                         "sources": "; ".join(str(x) for x in p["sources"]), "field": field, "fact": f["fact"] or "",
+                         "first_drug": pr.entity if pr is not None else "",
+                         "entry": str(pd.Timestamp(pr.entry).date()) if pr is not None else "",
+                         "sonnet": ans(CHECK_TASK.model, DISPUTE_ANSWER[field]), "sonnet_note": ans(CHECK_TASK.model, "note"),
+                         "opus": ans(OPUS_CHECK_TASK.model, DISPUTE_ANSWER[field]),
+                         "opus_note": ans(OPUS_CHECK_TASK.model, "note"), "verdict": "", "reader": "", "note": ""})
+    return pd.DataFrame(rows, columns=DISPUTE_COLUMNS)
+
+
+def read_sheet(path) -> pd.DataFrame:
+    return pd.read_csv(path, dtype=str).fillna("") if os.path.exists(path) else pd.DataFrame(columns=DISPUTE_COLUMNS)
+
+
+def write_sheet(path, sheet: pd.DataFrame) -> pd.DataFrame:
+    """Write the disputes sheet, keeping the verdict, reader and note already given for a (label, field)."""
+    prior = read_sheet(path).set_index(["subject_key", "field"])[["verdict", "reader", "note"]]
+    out = sheet.drop(columns=["verdict", "reader", "note"]).merge(prior, left_on=["subject_key", "field"],
+                                                                  right_index=True, how="left").fillna("")
+    out = out[DISPUTE_COLUMNS]
+    out.to_csv(path, index=False)
+    return out
+
+
+def read_disputes(path) -> dict[str, dict[str, str]]:
+    """subject_key -> {field: verdict} for every row of the sheet with a verdict; a verdict must be yes or no."""
+    s = read_sheet(path)
+    s = s[s.verdict.ne("")]
+    bad = sorted(set(s.verdict) - {"yes", "no"})
+    if bad:
+        raise SystemExit(f"{path}: verdicts must be yes or no, not {bad}")
+    out: dict[str, dict[str, str]] = {}
+    for r in s.itertuples():
+        out.setdefault(r.subject_key, {})[r.field] = r.verdict
+    return out
 
 
 def check_items(pairs: pd.DataFrame) -> dict[str, dict]:
@@ -768,45 +953,51 @@ def check_payload(row: dict, base: dict, records: list[dict], fetch=None) -> dic
 
 
 def check(args) -> None:
+    from report.section3 import Evidence
     pairs = pair_frame(args.pairs)
     items = check_items(pairs)
-    params = {"task": CHECK_TASK.name, "prompt_version": CHECK_TASK.prompt_version, "model": CHECK_TASK.model,
-              "effort": CHECK_TASK.effort, "tools": CHECK_TOOLS, "run": None}
+    params = {"task": CHECK_TASK.name, "tools": CHECK_TOOLS, "disputes": args.disputes, "runs": {},
+              "checkers": [{"prompt_version": t.prompt_version, "model": t.model, "effort": t.effort} for t in CHECKERS]}
     inputs = ["preclin.target_disease_origin", "preclin.target_disease_source", "pv_evidence.llm_decision",
-              "web fetch"]
-    decided: list[tuple] = []
-    todo = items
-    params["runs"] = []
-    for _ in range(LABEL_PASSES):
-        if not todo:
-            break
-        run_id = llm.run(CHECK_TASK, todo, context=CHECK_CONTEXT)
-        params["runs"].append(str(run_id))
-        new = llm.decisions(run_id)
-        decided += new
-        todo = undecided(todo, new)
-    params["run"] = params["runs"][-1] if params["runs"] else None
-    params["unchecked"] = sorted(todo)
-    run_id = params["run"]
-    outcomes = {k: (check_outcome(o), i) for k, i, o in decided}
+              "preclin.dev_program_approval (report.section3.Evidence)", "web fetch", args.disputes]
+    outputs: dict[str, list[tuple[str, int, dict]]] = {k: [] for k in items}  # key -> (model, decision id, output)
+    for task in CHECKERS:
+        todo, runs = items, []
+        for _ in range(LABEL_PASSES):
+            if not todo:
+                break
+            run_id = llm.run(task, todo, context=CHECK_CONTEXT)
+            runs.append(str(run_id))
+            new = llm.decisions(run_id)
+            for k, i, o in new:
+                outputs[k].append((task.model, i, o))
+            todo = undecided(todo, new)
+        params["runs"][task.prompt_version] = runs
+        params[f"unanswered_{task.prompt_version}"] = sorted(todo)
+    programs = first_program_rows(pairs)
+    facts = approval_facts(items, programs, Evidence(frame.programs()))
+    human = read_disputes(args.disputes)
+    answers = {k: [o for _, _, o in outputs[k]] for k in items}
+    raw = {k: check_fields(items[k], facts[k], answers[k], None) for k in items}
+    fields = {k: check_fields(items[k], facts[k], answers[k], human.get(k)) for k in items}
+    outcomes = {k: check_outcome_v2(f) for k, f in fields.items()}
     with llm.connect() as conn, conn.cursor() as cur:
-        llm.record_method(cur, CHECK_METHOD, "Second-model check of the origin labels", CHECK_DESCRIPTION, inputs, params)
-        for k, (outcome, decision_id) in outcomes.items():
+        llm.record_method(cur, CHECK_METHOD, "Check of the origin labels: facts in code, judgment by agreement",
+                          CHECK_DESCRIPTION, inputs, params)
+        for k, outcome in outcomes.items():
             e, m = split_key(k)
-            if outcome == "supported":
-                cur.execute("""UPDATE preclin.target_disease_origin SET check_outcome = %s, check_decision_id = %s
-                               WHERE basis = 'labelled' AND (ensembl_id, mondo_id) = (%s, %s)""",
-                            (outcome, decision_id, e, m))
-            else:
-                cur.execute("""UPDATE preclin.target_disease_origin SET check_outcome = %s, check_decision_id = %s,
-                                 origin = 'unclear', grade = 'none', origin_year = NULL, secondary_origin = NULL,
-                                 quote = NULL, sources = '{}'
-                               WHERE basis = 'labelled' AND (ensembl_id, mondo_id) = (%s, %s)""",
-                            (outcome, decision_id, e, m))
+            ids = [i for _, i, _ in outputs[k]]
+            detail = {**fields[k], "decisions": {model: i for model, i, _ in outputs[k]},
+                      "human": {f: v for f, v in human.get(k, {}).items() if raw[k].get(f) == "disputed"}}
+            cur.execute(CHECK_UPDATE_SQL[outcome], (outcome, ids[0] if ids else None, Json(detail), e, m))
         conn.commit()
-    counts = pd.Series([o for o, _ in outcomes.values()]).value_counts().to_dict() if outcomes else {}
-    log(f"graded labels={len(items)} checked={len(outcomes)} outcomes={counts} still not_checked={len(todo)} "
-        f"runs={params['runs']}")
+    sheet = write_sheet(args.disputes, dispute_sheet(items, fields, {k: [(mo, o) for mo, _, o in v]
+                                                                       for k, v in outputs.items()}, programs))
+    counts = pd.Series(list(outcomes.values())).value_counts().to_dict() if outcomes else {}
+    facts_n = pd.Series([f for f in facts.values() if f]).value_counts().to_dict()
+    log(f"graded labels={len(items)} outcomes={counts} approval facts={facts_n} human verdicts applied="
+        f"{sum(len(v) for v in human.values())} disputes on the sheet={len(sheet)} "
+        f"(by field {sheet.field.value_counts().to_dict() if len(sheet) else {}}) runs={params['runs']}")
 
 
 # --- blind coder ---
@@ -1370,8 +1561,10 @@ def add_commands(sub) -> None:
     pairs_option(p)
     p.add_argument("--hide-provisional", action="store_true", help="do not show the model the provisional origin")
     p.set_defaults(fn=label)
-    p = sub.add_parser("check", help="second-model check of each graded label")
+    p = sub.add_parser("check", help="check each graded label: facts in code, two checkers' judgment by agreement")
     pairs_option(p)
+    p.add_argument("--disputes", default=os.path.join(frame.REPO, "report", "audits", "target_origin_disputes.csv"),
+                   help="the disputes sheet: human verdicts are read from it, then it is rewritten with the open ones")
     p.set_defaults(fn=check)
     p = sub.add_parser("blind", help="second model labels a hand-check set from the records alone")
     pairs_option(p, default="set_a")
