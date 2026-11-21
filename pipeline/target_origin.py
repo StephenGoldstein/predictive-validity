@@ -729,17 +729,30 @@ validated at entry and not an origin, none disputed), for every other origin fro
 (partly counts as yes). A field the checkers disagree on, or that one of them did not answer, is disputed until a human
 verdict from the disputes sheet settles it. supported: no field is no, disputed or unverified; unsupported: a field
 is no; disputed: a field is disputed; unverified: a field is unverified. A row that is not supported is rewritten as
-unclear (grade none, no quote, no sources); its label stays in llm_decision_id's decision; check_fields records the
-fields, the approval fact, both decisions and the human verdicts applied. Unclear labels are not checked."""
+unclear (grade none, no quote, no sources); a supported row is restored to the label as read; check_fields records
+the fields, the approval fact, both decisions and the human verdicts applied. The check reads every label graded as
+read from its decision, so it reruns on its own (to apply verdicts) without `label`. Unclear labels are not
+checked."""
 
 _CHECK_SET = "check_outcome = %s, check_decision_id = %s, check_fields = %s"
 _CHECK_WHERE = "WHERE basis = 'labelled' AND (ensembl_id, mondo_id) = (%s, %s)"
 CHECK_UPDATE_SQL = {
-    "supported": f"UPDATE preclin.target_disease_origin SET {_CHECK_SET} {_CHECK_WHERE}",
+    "supported": (f"UPDATE preclin.target_disease_origin SET {_CHECK_SET}, origin = %s, origin_year = %s, "
+                  f"secondary_origin = %s, grade = %s, quote = %s, sources = %s {_CHECK_WHERE}"),
     **{o: (f"UPDATE preclin.target_disease_origin SET {_CHECK_SET}, origin = 'unclear', grade = 'none', "
            f"origin_year = NULL, secondary_origin = NULL, quote = NULL, sources = '{{}}' {_CHECK_WHERE}")
        for o in ("unsupported", "unverified", "disputed")},
 }
+
+
+def check_update_params(p: dict, outcome: str, decision_id: int | None, detail: dict, e: str, m: str) -> tuple:
+    """The parameters of CHECK_UPDATE_SQL[outcome]: a supported row is restored to the label as read (the payload
+    carries it), any other row is reset to unclear by the statement itself."""
+    head = (outcome, decision_id, Json(detail))
+    if outcome == "supported":
+        return (*head, p["origin"], p["origin_year"], p["secondary_origin"], p["grade"], p["quote"] or None,
+                list(p["sources"]), e, m)
+    return (*head, e, m)
 
 
 def check_outcome(out: dict) -> str:
@@ -904,21 +917,33 @@ def read_disputes(path) -> dict[str, dict[str, str]]:
     return out
 
 
+CHECK_ITEMS_SQL = """SELECT o.ensembl_id, o.mondo_id, o.llm_decision_id, d.parsed_output
+                     FROM preclin.target_disease_origin o JOIN pv_evidence.llm_decision d USING (llm_decision_id)
+                     WHERE o.basis = 'labelled' AND d.parsed_output->>'grade' <> 'none'
+                       AND (o.ensembl_id, o.mondo_id) IN %s"""
+
+
+def label_row(e: str, m: str, decision_id: int, o: dict) -> dict:
+    """The label as read, in the shape of its stored row (what origin_rows writes), so the check sees the same label
+    whatever the row holds after an earlier check."""
+    return {"ensembl_id": e, "mondo_id": m, "origin": o["origin"], "origin_year": o["origin_year"],
+            "secondary_origin": o["secondary_origin"], "grade": o["grade"], "sources": list(o["sources"]),
+            "quote": o["quote"].strip() or None, "llm_decision_id": decision_id, "parsed_output": o}
+
+
 def check_items(pairs: pd.DataFrame) -> dict[str, dict]:
-    """A payload per graded labelled row: the label and the full text of the cited records it was shown."""
+    """A payload per labelled row whose label as read is graded: the label (from its decision, not from the row, which
+    an earlier check may have reset) and the full text of the cited records it was shown."""
     if pairs.empty:
         return {}
-    rows = frame.query("""SELECT o.ensembl_id, o.mondo_id, o.origin, o.origin_year, o.secondary_origin, o.grade, o.quote,
-                                 o.sources, o.llm_decision_id, d.parsed_output
-                          FROM preclin.target_disease_origin o JOIN pv_evidence.llm_decision d USING (llm_decision_id)
-                          WHERE o.basis = 'labelled' AND o.grade <> 'none' AND (o.ensembl_id, o.mondo_id) IN %s""",
-                       (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
+    rows = frame.query(CHECK_ITEMS_SQL, (tuple(zip(pairs.ensembl_id, pairs.mondo_id)),))
     base = pair_items(pairs)
     sources = sources_for(pairs)
     items = {}
-    for r in records_from(rows):
-        k = key(r["ensembl_id"], r["mondo_id"])
-        items[k] = check_payload(r, base[k], sources.get((r["ensembl_id"], r["mondo_id"]), []))
+    for r in rows.itertuples():
+        k = key(r.ensembl_id, r.mondo_id)
+        items[k] = check_payload(label_row(r.ensembl_id, r.mondo_id, int(r.llm_decision_id), r.parsed_output),
+                                 base[k], sources.get((r.ensembl_id, r.mondo_id), []))
     return items
 
 
@@ -992,7 +1017,8 @@ def check(args) -> None:
             ids = [i for _, i, _ in outputs[k]]
             detail = {**fields[k], "decisions": {model: i for model, i, _ in outputs[k]},
                       "human": {f: v for f, v in human.get(k, {}).items() if raw[k].get(f) == "disputed"}}
-            cur.execute(CHECK_UPDATE_SQL[outcome], (outcome, ids[0] if ids else None, Json(detail), e, m))
+            cur.execute(CHECK_UPDATE_SQL[outcome], check_update_params(items[k], outcome, ids[0] if ids else None,
+                                                                        detail, e, m))
         conn.commit()
     sheet = write_sheet(args.disputes, dispute_sheet(items, fields, {k: [(mo, o) for mo, _, o in v]
                                                                        for k, v in outputs.items()}, programs))

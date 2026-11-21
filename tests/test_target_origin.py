@@ -741,3 +741,27 @@ def test_dispute_sheet_round_trip(tmp_path):
     s.to_csv(path, index=False)
     with pytest.raises(SystemExit):
         to.read_disputes(path)
+
+
+def test_label_row_is_the_label_as_read_in_the_stored_rows_shape():
+    row = to.label_row("ENSG1", "MONDO:1", 77, good_label())
+    stored = to.origin_rows([("ENSG1|MONDO:1", 77, good_label())])[0]
+    assert (row["origin"], row["origin_year"], row["secondary_origin"], row["grade"], row["sources"],
+            row["quote"]) == stored[3:9]
+    assert row["ensembl_id"] == "ENSG1" and row["mondo_id"] == "MONDO:1" and row["llm_decision_id"] == 77
+    assert row["parsed_output"]["source_years"] == [1999]
+    assert to.label_row("ENSG1", "MONDO:1", 78, {**good_label(), "quote": "  "})["quote"] is None  # as stored
+    # the check reads the label as read, whatever the row holds after an earlier check
+    assert "d.parsed_output->>'grade' <> 'none'" in to.CHECK_ITEMS_SQL and "o.grade" not in to.CHECK_ITEMS_SQL
+
+
+def test_check_update_params_restore_the_label_when_supported():
+    p = cpayload()
+    sup = to.check_update_params(p, "supported", 5, {"quote": "yes"}, "ENSG1", "MONDO:1")
+    assert sup[:2] == ("supported", 5) and sup[3:9] == ("diseased_tissue", 2005, None, "stated", "q", ["PMID:1"])
+    assert sup[-2:] == ("ENSG1", "MONDO:1") and to.CHECK_UPDATE_SQL["supported"].count("%s") == len(sup)
+    assert to.check_update_params({**p, "quote": ""}, "supported", 5, {}, "E", "M")[7] is None
+    dis = to.check_update_params(p, "disputed", 5, {"quote": "disputed"}, "ENSG1", "MONDO:1")
+    assert dis[:2] == ("disputed", 5) and dis[-2:] == ("ENSG1", "MONDO:1") and len(dis) == 5
+    assert to.CHECK_UPDATE_SQL["disputed"].count("%s") == len(dis)
+    assert "origin = %s" in to.CHECK_UPDATE_SQL["supported"]
