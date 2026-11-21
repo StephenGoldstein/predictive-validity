@@ -848,13 +848,16 @@ def definition_of(origin: str) -> str:
 
 def dispute_sheet(items: dict[str, dict], fields: dict[str, dict], outputs: dict[str, list[tuple[str, dict]]],
                   programs: pd.DataFrame) -> pd.DataFrame:
-    """One row per disputed field of a label, for a human read: the label, its definition, quote and sources, the
-    approval fact and first drug where the fact is in question, and each checker's answer and note; verdict (yes or
-    no), reader and note are left empty for the reader."""
+    """One row per disputed field of a label whose outcome is disputed (a verdict on a label another field already
+    settles would change nothing), for a human read: the label, its definition, quote and sources, the approval fact
+    and first drug where the fact is in question, and each checker's answer and note; verdict (yes or no), reader and
+    note are left empty for the reader."""
     prog = {(r.ensembl_id, r.mondo_id): r for r in programs.itertuples()}
     rows = []
     for k in sorted(items):
         p, f = items[k], fields[k]
+        if check_outcome_v2(f) != "disputed":
+            continue
         by_model = dict(outputs.get(k, []))
         pr = prog.get((p["ensembl_id"], p["mondo_id"]))
         for field in CHECK_FIELDS:

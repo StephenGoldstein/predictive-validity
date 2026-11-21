@@ -709,9 +709,11 @@ def test_approval_fact_from_the_dated_index():
 
 def test_dispute_sheet_round_trip(tmp_path):
     items = {"ENSG1|MONDO:1": cpayload(),
-             "ENSG2|MONDO:1": cpayload(origin="earlier_drug_other_disease", ensembl_id="ENSG2")}
+             "ENSG2|MONDO:1": cpayload(origin="earlier_drug_other_disease", ensembl_id="ENSG2"),
+             "ENSG3|MONDO:1": cpayload(ensembl_id="ENSG3")}
     fields = {"ENSG1|MONDO:1": {"quote": "yes", "year": "disputed", "category": "disputed", "fact": None},
-              "ENSG2|MONDO:1": {"quote": "yes", "year": "yes", "category": "disputed", "fact": "none"}}
+              "ENSG2|MONDO:1": {"quote": "yes", "year": "yes", "category": "disputed", "fact": "none"},
+              "ENSG3|MONDO:1": {"quote": "no", "year": "disputed", "category": "yes", "fact": None}}  # unsupported anyway
     outputs = {"ENSG1|MONDO:1": [("claude-sonnet-5-5", cout(year="no", follows="no", note="s")),
                                  ("claude-opus-5-5", cout(note="o"))],
                "ENSG2|MONDO:1": [("claude-sonnet-5-5", cout(note="s2")), ("claude-opus-5-5", cout(note="o2"))]}
@@ -719,7 +721,7 @@ def test_dispute_sheet_round_trip(tmp_path):
                              "entity": ["drug a", "drug b"], "entry": [pd.Timestamp("2008-01-01")] * 2})
     sheet = to.dispute_sheet(items, fields, outputs, programs)
     assert list(zip(sheet.subject_key, sheet.field)) == [("ENSG1|MONDO:1", "year"), ("ENSG1|MONDO:1", "category"),
-                                                         ("ENSG2|MONDO:1", "category")]
+                                                         ("ENSG2|MONDO:1", "category")]  # ENSG3: a verdict changes nothing
     assert sheet.iloc[0].sonnet == "no" and sheet.iloc[0].sonnet_note == "s" and sheet.iloc[0].opus == "yes"
     assert sheet.iloc[1].sonnet == "no" and sheet.iloc[1].opus == "yes"  # the checkers' own words on the field
     assert sheet.iloc[2].fact == "none" and sheet.iloc[2].first_drug == "drug b"
