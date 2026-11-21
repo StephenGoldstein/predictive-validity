@@ -125,3 +125,67 @@ rows with `prior_decision_id`), so its `n` overstates the calls; the call counts
 Step 6 (the O1 test, descriptives and the figure) is the owner's. Two things it should know: the coverage split by
 group over the whole window is not computed here (the coverage gate scored it on the pilot's settled-stop frame), and
 the 73 unlabelled pairs are absent from the origin table rather than unclear.
+
+## Checker sensitivity: Opus 5.5 as a second checker (2026-11-21, 09:50 to 10:51)
+
+Asked on the day the run finished: the checker (Sonnet 5.5) is a smaller model than the labeller (Opus 5.5), so
+would an Opus checker verify differently? Measured rather than argued: every one of the 4,419 graded labels was
+checked again by Opus 5.5 under the v3 prompt text, recorded as `target_origin_check` prompt version v4 (runs
+ddc03aac, ac2d3948, 8e9f70c6, 2a997db7, 878feeb8), in the decision log only; `preclin.target_disease_origin` was not
+touched. 4,402 labels were decided by both (Opus refused 17). `target_origin_check_opus.csv` carries both verdicts
+per label; `target_origin_check_disagreements.md` shows twenty disagreements with the quote, the definition and both
+checkers' notes, for a human read.
+
+| | Opus supported | Opus unsupported | Opus unverified | all |
+|---|---|---|---|---|
+| Sonnet supported | 3,439 | 47 | 24 | 3,510 |
+| Sonnet unsupported | 590 | 125 | 9 | 724 |
+| Sonnet unverified | 150 | 12 | 6 | 168 |
+
+κ between the checkers is 0.20 (0.21 on supported against the rest). Opus rejects 184 labels (4.2%), Sonnet 724
+(16.4%); they agree on 125 rejections. Under Opus the stored table would hold 223 unclear graded rows instead of 892.
+
+**Where the disagreement sits.** Of the 590 labels Sonnet rejected and Opus supported, Opus scored the category
+"partly" on 528 and "yes" on 61; 455 of the 590 are labels Sonnet rejected on the category alone. Read side by side,
+the two checkers describe the same facts (the quoted pre-cutoff source shows the drug in use in the same disease and
+does not show an earlier approval for an unrelated disease) and set the threshold differently: Sonnet says the
+category does not follow, Opus says "partly" and supplies the missing step from its own knowledge ("already approved
+for renal cancer", "an existing approved drug repurposed"). The prompt defines "partly" as support only together with
+the other sources, or support for a neighbouring category as well; a link the record does not contain is not in that
+definition, so on the rule as written Sonnet applied it and Opus was lenient. The leniency is largest where the
+labeller over-calls most: earlier_drug_other_disease keeps 663 of 726 labels under Opus against 361 under Sonnet,
+phenotypic_screen 105 of 111 against 65. An Opus checker shares the Opus labeller's reading; that is the case for a
+second model, in numbers.
+
+**Where Sonnet is weak: the year field.** Opus supported 71 of the 87 labels Sonnet rejected on the year alone, and
+38 of Sonnet's 116 year-based rejections carry a note that says the year is fine while the field says no. Those are
+checker errors, about 2% of the stored labels. A later prompt version can take the year out of the model's hands:
+ask for the year it read for each web source and compute `year_ok` in code.
+
+**The other side.** Opus rejects 47 labels Sonnet supported: 29 on the category, 10 on the year, 7 on the quote
+(13 animal_model_pharmacology, 7 diseased_tissue, 7 earlier_drug_other_disease). Opus marks "partly" on 61% of the
+labels it supports, Sonnet on 53%.
+
+Stored origin under each checker, over the 4,402 labels both decided (the 682 the labeller left ungraded are unclear
+under both):
+
+| origin | label as read | Sonnet (stored) | Opus |
+|---|---|---|---|
+| animal_model_pharmacology | 935 | 793 | 884 |
+| diseased_tissue | 925 | 850 | 901 |
+| earlier_drug_other_disease | 726 | 361 | 663 |
+| human_cell_perturbation | 481 | 424 | 464 |
+| clinical_observation | 392 | 302 | 370 |
+| observational_biomarker | 279 | 244 | 267 |
+| mouse_genetics | 206 | 170 | 189 |
+| human_genetics | 198 | 170 | 196 |
+| tumour_genetics | 132 | 122 | 126 |
+| phenotypic_screen | 111 | 65 | 105 |
+| curated_pathway | 12 | 6 | 10 |
+| cell_screen | 5 | 3 | 4 |
+| unclear (graded rows) | 0 | 892 | 223 |
+
+**Status.** The stored table keeps the Sonnet verdicts, which is the registered design. The threshold moves the
+owner's variable by up to 669 rows, so the choice is the owner's, with the twenty-case sheet as the material. If the
+Opus verdicts are chosen, `label --pairs window` then `check --pairs window` with `CHECK_TASK` at prompt version v4
+and model `claude-opus-5-5` rewrite the rows from the stored v4 decisions without new check calls.
