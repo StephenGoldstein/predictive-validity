@@ -235,4 +235,4 @@ from 0.68 to 0.69 on set a; κ on the stored origin rose from 0.43 to 0.55 and f
 grew (15 of 87 rejected, was 35 of 90). Tokens per decision over every version run on the pilot: label 4,247 in and
 2,078 out (299 decisions); reference reading 4,236 in and 1,053 out (739); check 773 in and 381 out (266).
 
-Step 4 is complete. The full run (step 5) starts only after its own announcement on #146.
+Step 4 is complete. The full run (step 5) ran from 2026-11-20 15:04 to 2026-11-21 09:32 after its announcement on #146; its audit is `target_origin_run.md`.
