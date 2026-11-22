@@ -724,9 +724,9 @@ whether every source is dated before the cutoff year, and whether the origin fol
 quote, from the two answers where they agree (could_not_open carries no information); year, no when a cited record is
 dated in or after the cutoff year, yes when every source is a record, else from the two answers where they agree
 (unknown carries no information); category, for earlier_drug_other_disease from the dated Drugs@FDA index of
-approvals on the target before entry (report.section3.Evidence: unrelated yes; related no, since an approval for a
-related disease, Lin 0.5 or more, the chart's b1 line, excludes the approved_unrelated_only tier that defines the
-category; none disputed), for every other origin from the two answers where they agree
+approvals on the pair's gene before entry (report.section3.Evidence, the chart's dating: unrelated yes; close no,
+an approval within Lin 0.8 of the disease being the hub's validated_at_entry rule; related no, an approval within
+Lin 0.5, the chart's b1 line, excluding the approved_unrelated_only tier that defines the category; none disputed), for every other origin from the two answers where they agree
 (partly counts as yes). A field the checkers disagree on, or that one of them did not answer, is disputed until a human
 verdict from the disputes sheet settles it. supported: no field is no, disputed or unverified; unsupported: a field
 is no; disputed: a field is disputed; unverified: a field is unverified. A row that is not supported is rewritten as
@@ -779,7 +779,7 @@ def agree(a: str | None, b: str | None, no_info: str) -> str:
     return a if a == b else "disputed"
 
 
-FACT_CATEGORY = {"unrelated": "yes", "related": "no", "none": "disputed"}
+FACT_CATEGORY = {"unrelated": "yes", "related": "no", "close": "no", "none": "disputed"}
 
 
 def check_fields(p: dict, fact: str | None, outputs: list[dict], human: dict[str, str] | None) -> dict:
@@ -819,34 +819,35 @@ def check_outcome_v2(fields: dict) -> str:
     return "supported"
 
 
-def approval_fact(ev, moiety_id: int, mondo_id: str, entry: pd.Timestamp) -> str:
-    """Whether a drug on the entity's primary targets was FDA-approved before entry, from report.section3.Evidence's
-    dated index (Drugs@FDA through the programs): related when one of its approved diseases is related to mondo_id
-    (Lin at least 0.5, the chart's b1 line), unrelated when approvals exist but none is related (the chart's
-    approved_unrelated_only line), none otherwise."""
-    from report.section3 import RELATED
-    if moiety_id not in ev.ent.index:
-        return "none"
-    genes = ev.ent.at[moiety_id, "genes"]
-    related = ev.nb.terms(mondo_id, RELATED)
-    if any(d in related and when < entry for g in genes for d, when in ev.approved.get(g, ())):
+def approval_fact(ev, ensembl_id: str, mondo_id: str, entry: pd.Timestamp) -> str:
+    """Whether a drug on the pair's gene was FDA-approved before entry, from report.section3.Evidence's dated index
+    (Drugs@FDA through the programs; an approval that predates the FDA letters is dated at the entity's first FDA
+    approval, as the chart dates it): close when an approved disease is within Lin 0.8 of mondo_id (the hub's
+    validated_at_entry rule, migration 142), related when within Lin 0.5 (the chart's b1 line), unrelated when the
+    gene has an earlier approval but none related (the chart's approved_unrelated_only line), none otherwise. The
+    gene is the pair's own, never another target of the first drug."""
+    from report.section3 import CLOSE, RELATED
+    before = [d for d, when in ev.approved.get(ensembl_id, ()) if when < entry]
+    if any(d in ev.nb.terms(mondo_id, CLOSE) for d in before):
+        return "close"
+    if any(d in ev.nb.terms(mondo_id, RELATED) for d in before):
         return "related"
-    if any(ev.first_approval.get(g, pd.Timestamp.max) < entry for g in genes):
+    if ev.first_approval.get(ensembl_id, pd.Timestamp.max) < entry:
         return "unrelated"
     return "none"
 
 
 def approval_facts(items: dict[str, dict], programs: pd.DataFrame, ev) -> dict[str, str | None]:
-    """subject_key -> the approval fact of each earlier_drug_other_disease label, from the pair's first program
-    (first_program_rows) and the index; None for every other origin."""
-    prog = {(r.ensembl_id, r.mondo_id): (int(r.moiety_id), pd.Timestamp(r.entry)) for r in programs.itertuples()}
+    """subject_key -> the approval fact of each earlier_drug_other_disease label, on the pair's gene as of the pair's
+    first entry (first_program_rows) from the index; None for every other origin."""
+    entry = {(r.ensembl_id, r.mondo_id): pd.Timestamp(r.entry) for r in programs.itertuples()}
     out = {}
     for k, p in items.items():
         if p["origin"] != "earlier_drug_other_disease":
             out[k] = None
             continue
-        pr = prog.get((p["ensembl_id"], p["mondo_id"]))
-        out[k] = approval_fact(ev, pr[0], p["mondo_id"], pr[1]) if pr else "none"
+        when = entry.get((p["ensembl_id"], p["mondo_id"]))
+        out[k] = approval_fact(ev, p["ensembl_id"], p["mondo_id"], when) if when is not None else "none"
     return out
 
 

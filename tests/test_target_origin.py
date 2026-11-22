@@ -654,6 +654,7 @@ def test_check_fields_earlier_drug_takes_the_category_from_the_approval_fact():
     p = cpayload(origin="earlier_drug_other_disease")
     assert to.check_fields(p, "unrelated", [cout(follows="no"), cout(follows="no")], None)["category"] == "yes"
     assert to.check_fields(p, "related", [cout(), cout()], None)["category"] == "no"
+    assert to.check_fields(p, "close", [cout(), cout()], None)["category"] == "no"
     f = to.check_fields(p, "none", [cout(), cout()], None)
     assert f["category"] == "disputed" and f["fact"] == "none"
 
@@ -687,17 +688,22 @@ def test_check_update_sql_resets_the_origin_unless_supported():
     assert all("check_fields" in sql for sql in to.CHECK_UPDATE_SQL.values())
 
 
-def test_approval_fact_from_the_dated_index():
+def test_approval_fact_on_the_pairs_gene_from_the_dated_index():
+    """The fact is about the pair's gene, never another target of the first drug (the fake index has no entity table,
+    so an entity-level read raises): close at Lin 0.8 (the hub's validated_at_entry rule), related at 0.5 (the
+    chart's b1 line), unrelated when the gene has an earlier approval but none related, none otherwise."""
     from types import SimpleNamespace as NS
-    ent = pd.DataFrame({"genes": [["G1"], ["G2"]]}, index=pd.Index([10, 20], name="moiety_id"))
-    ev = NS(ent=ent, first_approval={"G1": pd.Timestamp("2001-01-01")},
-            approved={"G1": [("MONDO:9", pd.Timestamp("2001-01-01"))]},
-            nb=NS(terms=lambda m, rel: {"MONDO:9"} if m == "MONDO:1" else set()))
     entry = pd.Timestamp("2008-01-01")
-    assert to.approval_fact(ev, 10, "MONDO:1", entry) == "related"
-    assert to.approval_fact(ev, 10, "MONDO:2", entry) == "unrelated"
-    assert to.approval_fact(ev, 20, "MONDO:1", entry) == "none"
-    assert to.approval_fact(ev, 10, "MONDO:2", pd.Timestamp("2000-06-01")) == "none"  # the approval came after entry
+    close = {"MONDO:1": {"MONDO:1", "MONDO:1a"}}
+    related = {"MONDO:1": {"MONDO:1", "MONDO:1a", "MONDO:9"}}
+    ev = NS(first_approval={"ENSG1": pd.Timestamp("2001-01-01"), "ENSG3": pd.Timestamp("1995-01-01")},
+            approved={"ENSG1": [("MONDO:9", pd.Timestamp("2001-01-01"))], "ENSG3": [("MONDO:1a", pd.Timestamp("1995-01-01"))]},
+            nb=NS(terms=lambda m, thr: (close if thr >= 0.8 else related).get(m, set())))
+    assert to.approval_fact(ev, "ENSG3", "MONDO:1", entry) == "close"  # approved for a subtype
+    assert to.approval_fact(ev, "ENSG1", "MONDO:1", entry) == "related"  # MONDO:9 is related at 0.5, not close
+    assert to.approval_fact(ev, "ENSG1", "MONDO:2", entry) == "unrelated"
+    assert to.approval_fact(ev, "ENSG2", "MONDO:1", entry) == "none"
+    assert to.approval_fact(ev, "ENSG1", "MONDO:1", pd.Timestamp("2000-06-01")) == "none"  # the approval came after entry
     programs = pd.DataFrame({"ensembl_id": ["ENSG1", "ENSG2"], "mondo_id": ["MONDO:1"] * 2, "moiety_id": [10, 20],
                              "entry": [entry, entry]})
     items = {"ENSG1|MONDO:1": cpayload(origin="earlier_drug_other_disease"),
@@ -705,6 +711,10 @@ def test_approval_fact_from_the_dated_index():
              "ENSG1|MONDO:2": cpayload(origin="diseased_tissue", mondo_id="MONDO:2")}
     assert to.approval_facts(items, programs, ev) == {"ENSG1|MONDO:1": "related", "ENSG2|MONDO:1": "none",
                                                       "ENSG1|MONDO:2": None}
+
+
+def test_fact_category_close_is_validated_at_entry_and_not_an_origin():
+    assert to.FACT_CATEGORY == {"unrelated": "yes", "related": "no", "close": "no", "none": "disputed"}
 
 
 def test_dispute_sheet_round_trip(tmp_path):

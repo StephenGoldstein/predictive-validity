@@ -192,3 +192,13 @@ tokens per decision:
 target_origin_blind_read   739        4236.0         1053.0
      target_origin_check 43602         967.0          429.0
 === done 2026-11-21 16:08:34 ===
+=== check (try 1) 2026-11-21 19:22:42 ===
+[target_origin_check] run=df3b1022-d43a-4f1d-8436-1d229dfe5110 items=4431 reused=4431 new=0
+[target_origin_check] run=a757883d-b9f7-47cc-884f-212927c2b827 items=4431 reused=4426 new=5
+[target_origin_check] 5/5 validated=0 invalid=5
+[target_origin_check] run=927eaf8f-9741-450a-80f7-67c9be3a1232 items=5 reused=0 new=5
+[target_origin_check] 5/5 validated=0 invalid=5
+[target_origin_check] run=262058ac-d13b-4547-966f-f0f8923d6a79 items=5 reused=0 new=5
+[target_origin_check] 5/5 validated=0 invalid=5
+graded labels=4431 outcomes={'supported': 3687, 'disputed': 394, 'unsupported': 344, 'unverified': 6} approval facts={'unrelated': 443, 'related': 164, 'close': 88, 'none': 32} human verdicts applied=0 disputes on the sheet=442 (by field {'category': 291, 'year': 87, 'quote': 64}) runs={'v3': ['df3b1022-d43a-4f1d-8436-1d229dfe5110'], 'v4': ['a757883d-b9f7-47cc-884f-212927c2b827', '927eaf8f-9741-450a-80f7-67c9be3a1232', '262058ac-d13b-4547-966f-f0f8923d6a79']}
+=== done 2026-11-21 19:40:19 ===

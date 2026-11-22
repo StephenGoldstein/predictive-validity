@@ -198,7 +198,8 @@ tracking kind); animal_model_pharmacology says non-genetic (#154's second kind).
 comment.
 
 What the change can touch in the pilot: no v1 label or v2 blind reading was cell_screen, and no pilot pair is
-validated at entry, so the first two cannot move a label. The tissue boundary can: 6 of the 12 diseased_tissue labels
+validated at entry by the hub's flag (by the chart's approval index six are, five in set a and one in set b;
+`target_origin_run.md`, last section), so the first two cannot move a label. The tissue boundary can: 6 of the 12 diseased_tissue labels
 rest on protein or staining evidence, and 9 of the 13 observational_biomarker labels mention protein, serum, plasma,
 CSF or urine; the pilot's boundary between the two was fuzzy. Both kinds are on the same side of O1. The definitions
 sit in all three prompts, so the labeller is v2, the blind reader v3 and the checker stays v3 (no v3 decision exists).

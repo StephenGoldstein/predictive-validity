@@ -95,7 +95,8 @@ done, use "Copy answers as CSV" and send the text, or "Download CSV".
 One row per disputed field of a graded label (check method v2, `target_origin_run.md`, last section). Columns:
 `subject_key` (ensembl_id|mondo_id), `symbol`, `disease`, `cutoff_year`, `origin` and `grade` as read, `definition`
 (the origin's, from the column comment), `quote`, `sources`, `field` (quote, year or category), `fact` (the Drugs@FDA
-approval fact for an earlier-drug label: unrelated, related, none; empty otherwise), `first_drug`, `entry`, `sonnet`
+approval fact for an earlier-drug label, on the pair's gene: close, an approval within Lin 0.8 of the disease before
+entry; related, within 0.5; unrelated; none; empty for other origins), `first_drug`, `entry`, `sonnet`
 and `sonnet_note`, `opus` and `opus_note` (each checker's answer to the field and its one-sentence reason), then
 `verdict`, `reader`, `note` for the person. The question per field: quote, is the quote in a cited source; year, is
 every cited web source dated before the cutoff year; category, does the quoted passage, with the sources, establish
