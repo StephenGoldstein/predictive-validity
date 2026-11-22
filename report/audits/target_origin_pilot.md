@@ -1,14 +1,27 @@
-# Target origin: pilot of 100 pairs (#146 step 4), 2026-11-19
+# Target origin: pilot of 100 pairs (#146 step 4), 2026-11-19 to 2026-11-20
 
-The pilot ran once, on prompt v1, with the gate reference the owner decided on 2026-11-19: three independent blind
-model readings of hand-check set a, majority taken. **The agreement gate failed and the coverage gate passed.** Nothing
-beyond the pilot ran. Numbers below are from `report/audits/target_origin_gate.json`, `python -m pipeline.target_disease
-summary --pairs pilot` and the decision log.
+## State (2026-11-20 14:55 Pacific, third run, aligned definitions)
+
+**Both gates pass**: set b (untouched) κ 0.65 on the label as read against the majority of three blind readings, set a
+0.69, coverage gap 8 points (`target_origin_gate.json` is set b, `target_origin_gate_set_a.json` set a). Labeller
+prompt v2, blind reader v3, checker v3; the full run (step 5) started on this result.
+
+The pilot ran three times on the same 100 pairs and this file is the dated record of all three: the first run (prompt
+v1, 2026-11-19) failed the agreement gate for a structural reason; after the fix pass the second run (2026-11-20)
+passed on the label as read; the third run, under the definitions aligned with the evidence chart, is the state above.
+
+# First run (prompt v1, 2026-11-19)
+
+The gate reference is the one the owner decided on 2026-11-19: three independent blind model readings of hand-check
+set a, majority taken. The agreement gate failed and the coverage gate passed; nothing beyond the pilot ran until the
+third run. Numbers below are from the gate file as this run wrote it, `python -m pipeline.target_disease summary
+--pairs pilot` and the decision log.
 
 ## Sample
 
 Seed 20261119: 50 cohort pairs with a settled "not causal" stop and 50 without (pairs with any stop filed as
-unresolved left out of both groups, 127 of 5,091, per #158; frame 703 and 4,261). Set a: 25 per group.
+unresolved left out of both groups, 127 of 5,091, per #158; the 5,091 are the window's 5,174 pairs less the 83 the hub flags `validated_at_entry`,
+Lin 0.8 or more; frame 703 and 4,261). Set a: 25 per group.
 
 ## Retrieval (`search --pairs pilot`)
 
@@ -31,7 +44,7 @@ disease alone 1,141, both none).
 5 rule breaks (a PMID cited from memory rather than retrieved, 3; a year count mismatch, 1; an origin year not among
 the cited sources, 1). Tokens per decision: 4,318 in, 2,144 out.
 
-| origin (labeller, before the check) | n |
+| origin as read, over the 48 labels the check supported and the 10 left unclear | n |
 |---|---|
 | animal_model_pharmacology | 11 |
 | earlier_drug_other_disease | 7 |
@@ -45,7 +58,7 @@ the cited sources, 1). Tokens per decision: 4,318 in, 2,144 out.
 | curated_pathway | 1 |
 | unclear | 10 |
 
-Grades: stated 22, pattern 26, none 10 (the 41 rows the check rewrote are counted below). Discovery route: derived
+Grades over the same 58: stated 22, pattern 26, none 10; the 41 rows the check rewrote are in the check section. Discovery route: derived
 from an existing active 25, repurposed drug 25, target screen 12, de novo design 5, unclear 32.
 
 ## Check (`check --pairs pilot`, Sonnet 5.5, fetch only)
@@ -84,7 +97,7 @@ first run; `gate` now reports it as `kappa_covered` and `kappa_uncovered`.)
 - Two defects of this pilot are therefore the reference's access and the checker's reach, not the labeller's prompt.
   The registered design allows one prompt revision; the revision worth making is elsewhere.
 
-## Options for the owner (none taken)
+## Options proposed (all three taken; next part)
 
 1. Give the reference reader the labeller's access (web search and fetch, still no provisional origin and no program,
    three replicates) and re-read set a; the labeller's prompt is unchanged, so set a is still unshaped by it. Set b stays
@@ -118,7 +131,8 @@ Coverage gap 8 points: **passes**. Fifty-two pairs still have no record naming b
 
 ## Labelling and check
 
-100 of 100 pairs decided (two passes). Grades: stated 28, pattern 27, none 10 (before the check). Discovery route:
+100 of 100 pairs decided (two passes). Grades over the 55 labels the check supported and the 10 left unclear: stated
+28, pattern 27, none 10. Discovery route:
 derived from an existing active 31, repurposed drug 23, target screen 12, de novo design 6, unclear 28. Tokens per
 label decision 4,262 in and 2,110 out; per reference reading 4,283 in and 930 out; per check 750 in and 379 out.
 
@@ -173,10 +187,11 @@ fetch, re-checks the graded labels. Neither is a revision of the labeller's prom
 # Definitions aligned with the evidence chart (2026-11-20)
 
 The owner's one-list decision of 2026-11-20 (#146): the thirteen origin kinds and the evidence chart's lines are one
-list, so each kind is defined the way its chart line is. Against `report/evidence_lines.py`, nine definitions matched
-and four were redefined: cell_screen is a screen in human cells (the chart's `crispr` line); earlier_drug_other_disease
-is an approval for an unrelated disease (`approved_unrelated_only`; a related-disease approval is the hub's
-`validated_at_entry`); diseased_tissue covers RNA and protein in the tissue (the `expression` line plus #154's
+list, so each kind is defined the way its chart line is. Against `report/evidence_lines.py`, eight definitions matched
+and five were redefined: cell_screen is a screen in human cells (the chart's `crispr` line); earlier_drug_other_disease
+is an approval for an unrelated disease (`approved_unrelated_only`; an approval for a related disease, Lin 0.5 or
+more, is the chart's b1 line and excludes the tier; the hub's `validated_at_entry` flag is the stricter Lin 0.8, see
+`target_origin_run.md`, last section); diseased_tissue covers RNA and protein in the tissue (the `expression` line plus #154's
 protein-in-tissue kind) and observational_biomarker is a measurement in blood, another fluid or imaging (#154's
 tracking kind); animal_model_pharmacology says non-genetic (#154's second kind). The crosswalk is
 `pipeline.target_origin.CHART_LINE` with a test, and a table in the codebook; migration 145 restates the column
@@ -194,8 +209,9 @@ is the owner's definition change, not the registered single prompt revision, whi
 # Pilot under the aligned definitions (2026-11-20, 14:41 to 14:55)
 
 Same 100 pairs and the same records; labeller v2, blind reader v3, checker v3; migration 145 applied first; the gate
-scored on the label as read (`gate_origin` raw). Gate files: `target_origin_gate.json` (set b),
-`target_origin_gate_set_a.json`.
+scored on the label as read (`gate_origin` raw). Gate files as this run wrote them: commit cf20780; both were rerun
+on the stored table after check v2 (`target_origin_run.md`, last section), where set a's stored κ is 0.52 and the
+with / without records split is 0.52 / 0.52.
 
 ## Labelling and check
 

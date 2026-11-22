@@ -1,5 +1,14 @@
 # Twenty labels the Sonnet checker rejected on the category and the Opus checker supported
 
+**Status (2026-11-21, evening): superseded by check method v2** (`target_origin_run.md`, last section), which settles the
+earlier-drug category from the Drugs@FDA approval index in code and sends the two checkers' other disagreements to
+`target_origin_disputes.csv`, the live sheet. Of the twenty cases below: 4 stand on the index (SNAP25, SCN9A, PARP2,
+AR: an approval for an unrelated disease before entry); 4 are unsupported on it (RAF1, INSR, NR3C1, HTR1B: the
+approval is for a related disease, Lin 0.5 or more, so not the category as the one-list decision defines it); 2 are
+disputed because the index holds no approval on the target (RHD, EGLN2); the 10 from the other kinds are category
+rows on the sheet. The read asked for below is no longer needed; the file stays as the record of the sensitivity
+study that led to v2.
+
 Provenance: the Sonnet 5.5 verdicts are the stored check (prompt v3); the Opus 5.5 verdicts are the sensitivity run of 2026-11-21 (prompt version v4, same text), decision log only. Twenty drawn at random (seed 1), ten from earlier_drug_other_disease and ten from the other kinds, among the labels Sonnet rejected on the category alone and Opus supported. See `target_origin_run.md`, "Checker sensitivity".
 
 Read the quote against the definition and say which checker is right. Both notes are the models' own.

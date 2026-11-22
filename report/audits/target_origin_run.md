@@ -1,15 +1,30 @@
 # Target origin: full run over the 2008–2019 window (#146 step 5), 2026-11-20 to 2026-11-21
 
+## State (2026-11-21 16:08 Pacific, after check method v2)
+
+5,174 pairs. 241,118 pre-entry records; 3,016 pairs (58%) have at least one. 5,113 pairs labelled; 61 unlabelled, the
+API's refusal on every pass (`target_origin_unlabelled.csv`). 4,431 graded labels checked: supported 3,654, unsupported
+392 (301 of them earlier-drug labels with an approval for a related disease, 18 of those the hub's
+`validated_at_entry`), disputed 380 (`target_origin_disputes.csv`, 426 rows awaiting a verdict),
+unverified 5. Stored: 1,459 of the 5,113 rows are unclear (29%); the table by origin, as read and stored, is in the
+last section. Gates, scored on the label as read: set b κ 0.65, set a 0.69, coverage gap 8 points, both pass.
+
+The sections below are the dated record in the order things happened: the run as it ran (search, label, and the v1
+check by Sonnet 5.5 alone), the checker sensitivity study of the next morning, and check method v2, which replaced the
+v1 outcomes in the stored table that afternoon. The v1 check and the stored result under it are kept and marked
+superseded. Numbers in the run sections are from the run log, `python -m pipeline.target_disease summary --pairs
+window` and `pv_evidence.llm_decision`; the state above is from the stored table at the last commit.
+
+## How it ran
+
 The full run started after both pilot gates passed under the aligned definitions (`target_origin_pilot.md`, last
 part) and after its announcement on #146 (2026-11-20). It ran from 2026-11-20 15:04 to 2026-11-21 09:32 Pacific
 time, unattended, as three invocations of one wrapper outside the repository: search until no pair had failed, then
 `label`, `check` and `summary`, each over `--pairs window`, each re-invoked after a pause when it exited non-zero.
 Every step is idempotent (search skips searched pairs, label reuses validated decisions, check skips checked rows),
-so the second and third invocations only asked again for the pairs still unlabelled. Numbers below are from the run
-log, `python -m pipeline.target_disease summary --pairs window` and `pv_evidence.llm_decision`.
-
-**Result: 5,101 of 5,174 pairs carry a labelled origin; 73 (1.4%) are unlabelled because the API refused them on
-every pass.** After the check, 1,582 of the 5,101 are unclear (31%).
+so the second and third invocations only asked again for the pairs still unlabelled. The wrapper's output is
+`target_origin_run_log.txt` beside this file (personal paths removed) and, for the afternoon's check v2 passes,
+`target_origin_run_v2_log.txt`; the pass tables, refusal counts and token counts below are read from them.
 
 ## Scope
 
@@ -24,7 +39,8 @@ were reused unchanged, so the pilot's gate numbers stand for the same rows.
 | 1 (15:04 to 03:54) | 5,074 | 5,063 | 235,969 | 11 |
 | 2 (03:54 to 03:55) | 11 | 11 | 73 | 0 |
 
-236,042 records in all. The 11 failures were Europe PMC 500 and 503 responses in one half hour around 17:00; a failed
+236,042 records stored by this run; with the pilot's 100 pairs, searched on 2026-11-20 (5,076 records), the window
+holds 241,118. The 11 failures were Europe PMC 500 and 503 responses in one half hour around 17:00; a failed
 pair is rolled back and left unmarked, so the second pass found exactly those 11. Single requests that failed and
 were retried by the client (up to five times) appear 99 times in the log and cost nothing. 3,016 pairs (58%) have at
 least one record; the median over all pairs is 1 and the largest bundle is 31,193.
@@ -56,17 +72,19 @@ mid-sentence while reading CD19 expression on AML blasts). The refused inputs ar
 against 959 for validated calls) and carry more pathogen, toxin, vaccine, gene-therapy, radiation and infection
 language in their abstracts (each two to four times as often as in validated inputs). They are not one disease or one
 target: the 118 pairs still refused after pass 3 spanned more than a hundred targets, the largest groups CSF2 (7
-pairs) and FKBP1A (5), and the diseases ran from acute myeloid leukemia (7) to hemophilia, ovarian cancer and
-malaria. A refusal is partly random: of the 187 refused on pass 1, 48 passed on pass 2 and 22 of the rest on pass 3;
-later passes recovered 18, 13, 7, 6, 2 and 4. The run was stopped at 73 because the last three passes had converged.
+pairs) and FKBP1A (5), and the diseases ran from acute myeloid leukemia (7) to hemophilia, ovarian cancer and malaria.
+A refusal is partly random: of the 187 refused on pass 1, 48 passed on pass 2 and 22 of the rest on pass 3; later
+passes recovered 18, 13, 7, 6, 2 and 4. The run was stopped at 73 after nine passes; three more passes on 2026-11-21
+(the check v2 section) recovered 12 at the same rate, so 61 remain.
 
-**The 73 unlabelled pairs** (`target_origin_unlabelled.csv`: pair, symbol, disease, records stored, reason) have no
-row in `preclin.target_disease_origin`. They are missing data, not `unclear`: an unclear origin is a finding about the
-record, an unlabelled pair is a pair the method did not reach. Their record counts run from 0 to 558 (median 11).
-The in-method remedy is more passes, now at a few pairs a pass; the out-of-method remedy is another model for these
-pairs, recorded as such. Neither was taken; both are the owner's call.
+**The unlabelled pairs** (73 at this point, 61 after the passes of 2026-11-21; `target_origin_unlabelled.csv` lists
+the 61: pair, symbol, disease, records stored, reason) have no row in `preclin.target_disease_origin`. They are
+missing data, not `unclear`: an unclear origin is a finding about the record, an unlabelled pair is a pair the method
+did not reach. Their record counts run from 0 to 558 (median 11). The in-method remedy is more passes, now at a few
+pairs a pass (taken once more on 2026-11-21); the out-of-method remedy is another model for these pairs, recorded as
+such (not taken; the owner's call).
 
-## Check (`check --pairs window`, Sonnet 5.5, prompt v3, fetch)
+## Check v1 (`check --pairs window`, Sonnet 5.5, prompt v3, search and fetch): superseded by check method v2 below
 
 4,419 graded labels (87 reused from the pilot check); 4,335 calls, 4,332 validated, 3 asked again. The first
 invocation died on an NCBI efetch outage before any decision (`RuntimeError: eutils efetch failed`) and the wrapper
@@ -80,7 +98,7 @@ re-invoked it after two minutes. Tokens: 4.2 million in, 65.5 million read from 
 
 A label that is unsupported or unverified is stored as `unclear` with grade `none`.
 
-## Stored result (`preclin.target_disease_origin`, basis `labelled`, 5,101 rows)
+## Stored result after check v1 (5,101 rows; superseded, the v2 table is in the last section)
 
 | origin | label as read | stored after the check |
 |---|---|---|
@@ -120,12 +138,6 @@ rows with `prior_decision_id`), so its `n` overstates the calls; the call counts
 | label, passes 4 to 6; check; summary | 07:34 | 07:57 |
 | label, passes 7 to 9; check; summary | 09:13 | 09:32 |
 
-## What this leaves for step 6
-
-Step 6 (the O1 test, descriptives and the figure) is the owner's. Two things it should know: the coverage split by
-group over the whole window is not computed here (the coverage gate scored it on the pilot's settled-stop frame), and
-the 73 unlabelled pairs are absent from the origin table rather than unclear.
-
 ## Checker sensitivity: Opus 5.5 as a second checker (2026-11-21, 09:50 to 10:51)
 
 Asked on the day the run finished: the checker (Sonnet 5.5) is a smaller model than the labeller (Opus 5.5), so
@@ -146,7 +158,7 @@ checkers' notes, for a human read.
 (16.4%); they agree on 125 rejections. Under Opus the stored table would hold 223 unclear graded rows instead of 892.
 
 **Where the disagreement sits.** Of the 590 labels Sonnet rejected and Opus supported, Opus scored the category
-"partly" on 528 and "yes" on 61; 455 of the 590 are labels Sonnet rejected on the category alone. Read side by side,
+"partly" on 529 and "yes" on 61; 455 of the 590 are labels Sonnet rejected on the category alone. Read side by side,
 the two checkers describe the same facts (the quoted pre-cutoff source shows the drug in use in the same disease and
 does not show an earlier approval for an unrelated disease) and set the threshold differently: Sonnet says the
 category does not follow, Opus says "partly" and supplies the missing step from its own knowledge ("already approved
@@ -162,9 +174,9 @@ second model, in numbers.
 checker errors, about 2% of the stored labels. A later prompt version can take the year out of the model's hands:
 ask for the year it read for each web source and compute `year_ok` in code.
 
-**The other side.** Opus rejects 47 labels Sonnet supported: 29 on the category, 10 on the year, 7 on the quote
-(13 animal_model_pharmacology, 7 diseased_tissue, 7 earlier_drug_other_disease). Opus marks "partly" on 61% of the
-labels it supports, Sonnet on 53%.
+**The other side.** Opus rejects 47 labels Sonnet supported: 29 on the category, 10 on the year, 7 on the quote, 1 on
+both quote and category (13 animal_model_pharmacology, 7 diseased_tissue, 7 earlier_drug_other_disease). Opus marks
+"partly" on 61% of the labels it supports, Sonnet on 53%.
 
 Stored origin under each checker, over the 4,402 labels both decided (the 682 the labeller left ungraded are unclear
 under both):
@@ -194,29 +206,31 @@ wrong in its own direction on the earlier-drug category, and the stored table no
 Posted on #146 at 14:08, before any row was rewritten; migration `db/148_target_disease_origin_check_v2.sql` adds
 the outcome `disputed` and the column `check_fields`.
 
-**Why.** The earlier-drug category's defining fact, a drug on the target approved before entry, is a dated fact in
-the database: `report.section3.Evidence` indexes Drugs@FDA approvals by target gene for the chart's precedent lines.
+**Why.** The earlier-drug category's defining fact, a drug on the target approved before entry, is a dated fact in the
+database: `report.section3.Evidence` indexes Drugs@FDA approvals by target gene for the chart's precedent lines.
 Scored against it, the 727 earlier-drug labels as read split 408 (approved for an unrelated disease, which is the
 definition), 301 (approved for a related disease, Lin at least 0.5, the chart's rule) and 18 (no approval on the
-target before entry in the index). The v1 checker rejected 168 of the 408 confirmed labels, each for the cited paper
-not restating the approval, and kept 134 of the 301 related ones; Opus rejected 27 of the 408 and passed all 18 it
-cannot confirm, among them roxadustat for myelodysplastic syndrome, approved nowhere before entry, which its own note
-says. The v1 check asked a literature record for a database fact, and each model failed it in its own direction.
-Separately, Sonnet's year field contradicts its own note on 38 of its 116 year-based rejections. Neither defect is
-model strength; both are the design asking a model for what the data or the code already hold.
+target before entry in the index). The v1 checker kept 219 of the 408 confirmed labels, rejected 168 (154 on the
+category alone, for the cited paper not restating the approval) and left 21 unverified; it kept 134 of the 301 related
+ones and 8 of the 18 unconfirmed (219 + 134 + 8 is its stored 361). Opus rejected 27 of the 408 and 25 of the 301 and
+passed all 18 it cannot confirm, among them roxadustat for myelodysplastic syndrome, approved nowhere before entry,
+which its own note says. The v1 check asked a literature record for a database fact, and each model failed it in its
+own direction. Separately, Sonnet's year field contradicts its own note on 38 of its 116 year-based rejections.
+Neither defect is model strength; both are the design asking a model for what the data or the code already hold.
 
-**The rule** (`check_fields`, `check_outcome_v2`; `CHECK_DESCRIPTION` has it in full). Three fields per graded
-label. quote: the two checkers' answers where they agree; could_not_open carries no information. year: no when a
-cited record is dated in or after the cutoff year; yes when every source is a record; otherwise the two answers where
-they agree, unknown carrying no information. category: for earlier_drug_other_disease the approval fact (unrelated
-yes; related no, since by the owner's one-list decision recorded on migration 145 such a pair is validated at entry
-and not an origin; none disputed), for every other origin the two answers where they agree, partly counting as yes.
-A field the two disagree on, or that one of them did not answer, is disputed until a human verdict from
-`target_origin_disputes.csv` settles it (`check --disputes` reads the verdicts and rewrites the sheet with the open
-rows; a verdict applies only where the checkers left the field disputed). Outcome: unsupported if a field is no, else
-disputed if one is disputed, else unverified if one is unverified, else supported. A row that is not supported holds
-unclear with grade none; `check_fields` records the fields, the fact, both decision ids and the verdicts applied. The
-sheet lists only labels whose outcome a verdict can change.
+**The rule** (`check_fields`, `check_outcome_v2`; `CHECK_DESCRIPTION` has it in full). Three fields per graded label.
+quote: the two checkers' answers where they agree; could_not_open carries no information. year: no when a cited record
+is dated in or after the cutoff year; yes when every source is a record; otherwise the two answers where they agree,
+unknown carrying no information. category: for earlier_drug_other_disease the approval fact (unrelated yes; related
+no, since the chart's approved_unrelated_only tier, which the owner's one-list decision makes the definition, excludes
+a pair with an approval for a related disease at Lin 0.5 or more; none disputed), for every other origin the two
+answers where they agree, partly counting as yes. A field the two disagree on, or that one of them did not answer, is
+disputed until a human verdict from `target_origin_disputes.csv` settles it: `check` reads the sheet (`--disputes
+PATH`, default that file) and rewrites it with the open rows. A verdict is `yes` (the field holds) or `no`; any other
+value stops the run; a verdict applies only where the checkers left the field disputed. Outcome: unsupported if a
+field is no, else disputed if one is disputed, else unverified if one is unverified, else supported. A row that is not
+supported holds unclear with grade none; `check_fields` records the fields, the fact, both decision ids and the
+verdicts applied. The sheet lists only labels whose outcome a verdict can change.
 
 **The run.** `label --pairs window` first, to restore every row to the label as read: 5,101 decisions reused, the 73
 refused pairs asked three more times (201 calls, 12 validated, 189 refused), so 5,113 pairs are labelled and 61 are
@@ -240,6 +254,30 @@ Disputes sheet: 426 rows over the 380 disputed labels (category 277, year 86, qu
 18 of the category rows are the approval fact). On the category rows Sonnet says no and Opus partly on
 228: the same threshold the previous section describes, now on a person's desk rather than either model's.
 
+Outcome by origin as read (the 4,431 graded labels; the share is disputed over as read):
+
+| origin as read | labels | supported | unsupported | disputed | unverified | disputed share |
+|---|---|---|---|---|---|---|
+| animal_model_pharmacology | 949 | 833 | 30 | 85 | 1 | 9% |
+| diseased_tissue | 927 | 870 | 9 | 46 | 2 | 5% |
+| earlier_drug_other_disease | 727 | 388 | 303 | 35 | 1 | 5% |
+| human_cell_perturbation | 486 | 439 | 12 | 35 | 0 | 7% |
+| clinical_observation | 393 | 322 | 14 | 56 | 1 | 14% |
+| observational_biomarker | 280 | 252 | 6 | 22 | 0 | 8% |
+| mouse_genetics | 209 | 176 | 7 | 26 | 0 | 12% |
+| human_genetics | 198 | 175 | 1 | 22 | 0 | 11% |
+| tumour_genetics | 132 | 120 | 4 | 8 | 0 | 6% |
+| phenotypic_screen | 113 | 69 | 3 | 41 | 0 | 36% |
+| curated_pathway | 12 | 6 | 2 | 4 | 0 | 33% |
+| cell_screen | 5 | 4 | 1 | 0 | 0 | 0% |
+
+The dispute rate is 9% overall and falls unevenly: 36% of phenotypic_screen labels as read and 14% of
+clinical_observation, against 5 to 12% in the other categories with more than a dozen labels. Every dispute holds
+unclear, so the stored table under-counts those categories until the sheet is read; a verdict can only move a row out
+of unclear, and 345 of the 380 disputed labels have one disputed field with the other two yes. The 91 unsupported
+labels outside the 301 failed on the category (64), the year (24) or the quote (4); one on two fields. The 5
+unverified are labels whose cited source neither checker could open.
+
 Stored origin after v2 (5,113 labelled rows), beside v1:
 
 | origin | v1 (Sonnet alone) | v2 |
@@ -258,15 +296,28 @@ Stored origin after v2 (5,113 labelled rows), beside v1:
 | curated_pathway | 6 | 6 |
 | cell_screen | 3 | 4 |
 
-The 301 validated-at-entry rows are unclear with `check_fields.fact = related`, so step 6 can count them as a status
-of their own rather than as missing. Discovery route is unchanged but for the 12 new labels (unclear 1,583,
-derived_from_active 1,385, repurposed_drug 1,159, target_screen 670, de_novo_design 230, phenotypic_screen 86).
+The 301 rows with `check_fields.fact = related` hold unclear, and "related" has two thresholds in this repository.
+The fact uses the chart's rule, Lin 0.5 or more (`report.section3.RELATED`, the b1 line), because that is the
+threshold inside the approved_unrelated_only tier the one-list decision defines the category by. The hub's
+`validated_at_entry` flag (migration 142) is stricter, Lin 0.8 or more, and marks 83 pairs in the window. The owner's
+one-list comment and the header comment of migration 145 name the hub flag for the related-disease case; the stored
+fact follows the chart's tier. So 18 of the 301 are validated at entry by the hub's definition and 283 carry a
+related-disease approval below it. All 83 hub-flagged pairs are in the stored table (18 among the 301, 63 with
+another origin as read, 2 ungraded); by the hub's own column comment their origin is not tested, and step 6 can set
+them aside by the flag. Whether the 283 should count as earlier_drug_other_disease instead is put to the owner on #146
+with the closing note; either answer is a rewrite from the stored decisions.
+
+Discovery route is unchanged but for the 12 new labels (unclear 1,583, derived_from_active 1,385, repurposed_drug
+1,159, target_screen 670, de_novo_design 230, phenotypic_screen 86).
 
 **Gates, rerun on the v2 table.** Set a: kappa 0.69 on the label as read (stored 0.52), coverage gap 8.0 points,
 passed. Set b: 0.65 (stored 0.55), gap 8.0, passed. The gate is scored on the label as read, which v2 does not
 touch; the stored kappas are reported beside it as before.
 
 **What this leaves.** The disputes read, the owner's by default (the #146 note offers it back); every verdict moves
-one row out of unclear, and unread rows stay unclear with the count reported. The residual the check cannot remove:
-two capable models disagree on the category judgment on 380 of 4,431 graded labels, and the audit reports that
-rate rather than present the check as exact.
+one row out of unclear, and unread rows stay unclear with the count reported. Also for step 6: the coverage split by
+group over the whole window is not computed (the gate scored it on the pilot's settled-stop frame), and the 61
+unlabelled pairs are absent from the table. The residual the check cannot remove: two capable models disagree on at
+least one field for 357 of 4,431 graded labels (on the category for 254); the other disputed labels are the 18 the
+approval index is silent on and the 5 one checker refused. The audit reports that rate rather than present the check
+as exact.

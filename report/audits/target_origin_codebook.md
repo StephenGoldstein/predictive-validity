@@ -37,21 +37,23 @@ validated at entry, which is not an origin; earlier_drug_other_disease is an app
 
 The thirteen kinds are one list used two ways (the owner's decision of 2026-11-20 on #146): the report's evidence
 chart (`report/evidence_lines.py`) asks whether each kind was present before entry, the origin asks which came first.
-`pipeline.target_origin.CHART_LINE` holds the mapping; a test checks that every named column exists in the chart.
+`pipeline.target_origin.CHART_LINE` holds the mapping; a test checks that every named column exists in the chart. The
+#154 kinds are quoted from that issue's table (its numbers in parentheses are its list rows); #154 counts a paper for
+the same disease at MONDO Lin 0.8 or more.
 
 | origin | chart line (column) | the chart's wording |
 |---|---|---|
 | human_genetics | `g3` | inherited variants link the target to the disease (tiers: rare only, common only, both) |
 | tumour_genetics | `somatic` | the gene is recurrently mutated in this cancer |
 | curated_pathway | `reactome` | a curated pathway shows a disease mutation disrupting the target |
-| diseased_tissue | `expression` | the gene's RNA level differs in diseased tissue; #154 adds the protein in patients' tissue |
+| diseased_tissue | `expression` | the gene's RNA level differs in diseased tissue; #154 adds the protein tier (L3) |
 | mouse_genetics | `altered_animal` | knocked-out or mutant mice show the disease |
-| cell_screen | `crispr` | gene-knockout screens in human cells (registered line, to be drawn) |
+| cell_screen | `crispr` | gene-knockout screens in human cells (a `Line` in `report/evidence_lines.py`; the owner's table says to add it back to the chart) |
 | earlier_drug_other_disease | `approved_unrelated_only` | a drug on the target approved only for unrelated diseases |
-| observational_biomarker | #154, fourth kind | its level tracking the disease in observational studies |
-| human_cell_perturbation | #154, first kind | the target perturbed in human cells or tissue |
-| animal_model_pharmacology | #154, second kind | the target perturbed in an animal disease model by means other than genetics |
-| clinical_observation | #154, new line | an effect seen in people, such as a side effect |
+| observational_biomarker | #154's "Observational biomarker" (its L4) | the target or its product, measured in blood, another fluid or by imaging, tracks the disease |
+| human_cell_perturbation | #154's "Human cell perturbation" (L1) | changing the target in primary human cells or tissue changes a disease feature |
+| animal_model_pharmacology | #154's "Animal model pharmacology", other agents (L2) | a non-genetic change to the target alters an animal model of the disease |
+| clinical_observation | #154's "Clinical observation" (descriptive) | an effect seen in people that implicates the target, such as a side effect |
 | phenotypic_screen | none | not evidence about the target |
 | unclear | none | |
 
@@ -87,3 +89,18 @@ it; leave it blank otherwise.
 Every pair needs an origin and a grade. Quote, source and source year are required when the grade is stated or
 pattern. Note is free text for anything the next reader should know. Answers save in the browser as you type; when
 done, use "Copy answers as CSV" and send the text, or "Download CSV".
+
+## Disputes sheet (`report/audits/target_origin_disputes.csv`)
+
+One row per disputed field of a graded label (check method v2, `target_origin_run.md`, last section). Columns:
+`subject_key` (ensembl_id|mondo_id), `symbol`, `disease`, `cutoff_year`, `origin` and `grade` as read, `definition`
+(the origin's, from the column comment), `quote`, `sources`, `field` (quote, year or category), `fact` (the Drugs@FDA
+approval fact for an earlier-drug label: unrelated, related, none; empty otherwise), `first_drug`, `entry`, `sonnet`
+and `sonnet_note`, `opus` and `opus_note` (each checker's answer to the field and its one-sentence reason), then
+`verdict`, `reader`, `note` for the person. The question per field: quote, is the quote in a cited source; year, is
+every cited web source dated before the cutoff year; category, does the quoted passage, with the sources, establish
+the origin as defined. `verdict` is `yes` (the field holds) or `no`; leave it empty to leave the row open; any other
+value stops `check`. `reader` is the person's name, `note` free text. Commit the sheet and run
+`python -m pipeline.target_disease check --pairs window`: it applies each verdict to its field, restores a label whose
+three fields are then yes, keeps the rest unclear, and rewrites the sheet with the rows still open. A verdict applies
+only to a field the checkers left disputed; it never overrides a field the code or both checkers settled.

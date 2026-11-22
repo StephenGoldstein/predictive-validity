@@ -724,8 +724,9 @@ whether every source is dated before the cutoff year, and whether the origin fol
 quote, from the two answers where they agree (could_not_open carries no information); year, no when a cited record is
 dated in or after the cutoff year, yes when every source is a record, else from the two answers where they agree
 (unknown carries no information); category, for earlier_drug_other_disease from the dated Drugs@FDA index of
-approvals on the target before entry (report.section3.Evidence: unrelated yes, related no since the pair is then
-validated at entry and not an origin, none disputed), for every other origin from the two answers where they agree
+approvals on the target before entry (report.section3.Evidence: unrelated yes; related no, since an approval for a
+related disease, Lin 0.5 or more, the chart's b1 line, excludes the approved_unrelated_only tier that defines the
+category; none disputed), for every other origin from the two answers where they agree
 (partly counts as yes). A field the checkers disagree on, or that one of them did not answer, is disputed until a human
 verdict from the disputes sheet settles it. supported: no field is no, disputed or unverified; unsupported: a field
 is no; disputed: a field is disputed; unverified: a field is unverified. A row that is not supported is rewritten as
