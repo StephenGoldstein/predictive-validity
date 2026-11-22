@@ -1,8 +1,8 @@
 {
   "n": 47,
-  "kappa_stored": 0.5521439915299099,
+  "kappa_stored": 0.5492807671816728,
   "kappa_raw": 0.6511134676564156,
-  "kappa_stored_layer": 0.5449886104783599,
+  "kappa_stored_layer": 0.5442099258414146,
   "kappa_raw_layer": 0.6460023174971032,
   "any_origin_agree": 0.7659574468085106,
   "coverage": {
@@ -14,8 +14,8 @@
   "kappa_blind_vs_reader": null,
   "kappa_blind_vs_raw": null,
   "n_covered": 26,
-  "kappa_covered": 0.4358047016274864,
-  "kappa_uncovered": 0.649025069637883,
+  "kappa_covered": 0.5246800731261427,
+  "kappa_uncovered": 0.5240793201133144,
   "gate_origin": "raw",
   "pass": true,
   "set": "b",
@@ -26,15 +26,22 @@
   "gap_max": 10.0,
   "graded_not_checked": 0,
   "runs": {
-    "target_origin_check@v1": [
-      "df7cdbf5-c56d-4ddb-8538-8ab0b61018fd"
-    ],
+    "target_origin_blind_read@v1": "952a9c9f-60f4-474c-916c-c261052f94b6",
     "target_origin_label@v1": [
-      "d30a3c6f-eb66-43f3-8382-11a89e3f1a0a",
-      "00103dab-2324-4be7-84df-dcaeb926ae37",
-      "fa6a2837-0210-4085-8607-a87beef8ab0d"
+      "411ff9c3-788c-406e-b435-ecfec55dbc32",
+      "1650c370-2700-4cad-a7c7-c939c6a9dae5",
+      "379bfc07-3701-4d7b-99f1-940507e6ab60"
     ],
-    "target_origin_blind_read@v1": "952a9c9f-60f4-474c-916c-c261052f94b6"
+    "target_origin_check@v2": {
+      "v3": [
+        "4aa855ab-8d0d-43ee-9e06-dd158e9ae87c"
+      ],
+      "v4": [
+        "cff357ce-abe9-4ad3-84f9-a2681c72e798",
+        "f9b9cff9-12ea-45f3-a4f5-30568bdcaec4",
+        "b77aa1e3-6fd9-44e5-b117-805c5e0bd1d2"
+      ]
+    }
   },
   "reference": "blind model reading, majority of replicates",
   "consistency": {

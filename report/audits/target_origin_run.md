@@ -185,7 +185,88 @@ under both):
 | cell_screen | 5 | 3 | 4 |
 | unclear (graded rows) | 0 | 892 | 223 |
 
-**Status.** The stored table keeps the Sonnet verdicts, which is the registered design. The threshold moves the
-owner's variable by up to 669 rows, so the choice is the owner's, with the twenty-case sheet as the material. If the
-Opus verdicts are chosen, `label --pairs window` then `check --pairs window` with `CHECK_TASK` at prompt version v4
-and model `claude-opus-5-5` rewrite the rows from the stored v4 decisions without new check calls.
+**Status.** Written at 11:00 with the stored table on the Sonnet verdicts. Superseded the same afternoon by check
+method v2 (next section): the disagreement was scored against the dated approval index, which showed each checker
+wrong in its own direction on the earlier-drug category, and the stored table now follows neither checker alone.
+
+## Check method v2: facts in code, judgment by agreement (2026-11-21, 14:11 to 16:08)
+
+Posted on #146 at 14:08, before any row was rewritten; migration `db/148_target_disease_origin_check_v2.sql` adds
+the outcome `disputed` and the column `check_fields`.
+
+**Why.** The earlier-drug category's defining fact, a drug on the target approved before entry, is a dated fact in
+the database: `report.section3.Evidence` indexes Drugs@FDA approvals by target gene for the chart's precedent lines.
+Scored against it, the 727 earlier-drug labels as read split 408 (approved for an unrelated disease, which is the
+definition), 301 (approved for a related disease, Lin at least 0.5, the chart's rule) and 18 (no approval on the
+target before entry in the index). The v1 checker rejected 168 of the 408 confirmed labels, each for the cited paper
+not restating the approval, and kept 134 of the 301 related ones; Opus rejected 27 of the 408 and passed all 18 it
+cannot confirm, among them roxadustat for myelodysplastic syndrome, approved nowhere before entry, which its own note
+says. The v1 check asked a literature record for a database fact, and each model failed it in its own direction.
+Separately, Sonnet's year field contradicts its own note on 38 of its 116 year-based rejections. Neither defect is
+model strength; both are the design asking a model for what the data or the code already hold.
+
+**The rule** (`check_fields`, `check_outcome_v2`; `CHECK_DESCRIPTION` has it in full). Three fields per graded
+label. quote: the two checkers' answers where they agree; could_not_open carries no information. year: no when a
+cited record is dated in or after the cutoff year; yes when every source is a record; otherwise the two answers where
+they agree, unknown carrying no information. category: for earlier_drug_other_disease the approval fact (unrelated
+yes; related no, since by the owner's one-list decision recorded on migration 145 such a pair is validated at entry
+and not an origin; none disputed), for every other origin the two answers where they agree, partly counting as yes.
+A field the two disagree on, or that one of them did not answer, is disputed until a human verdict from
+`target_origin_disputes.csv` settles it (`check --disputes` reads the verdicts and rewrites the sheet with the open
+rows; a verdict applies only where the checkers left the field disputed). Outcome: unsupported if a field is no, else
+disputed if one is disputed, else unverified if one is unverified, else supported. A row that is not supported holds
+unclear with grade none; `check_fields` records the fields, the fact, both decision ids and the verdicts applied. The
+sheet lists only labels whose outcome a verdict can change.
+
+**The run.** `label --pairs window` first, to restore every row to the label as read: 5,101 decisions reused, the 73
+refused pairs asked three more times (201 calls, 12 validated, 189 refused), so 5,113 pairs are labelled and 61 are
+not (`target_origin_unlabelled.csv` is now the 61). Then `check --pairs window`: Sonnet v3 reused 4,419 decisions
+and decided the 12 new labels (12 calls); Opus v4 reused 4,402 and was asked again for the labels it had refused and
+the 12 new ones (78 calls over the day's three check passes, 24 validated, 54 refused; 5 labels still have one
+checker only and are disputed on that account). No other model calls; the fields are computed from the stored
+decisions. Three passes because the second exposed a gap: `check` read only rows still graded, so after the first
+pass it saw the 3,649 supported rows and wrote the disputes sheet empty (the table was untouched). It now reads every
+label graded as read from its decision and restores a supported row, so it reruns on its own to apply verdicts; the
+third pass (15:49 to 16:08) reused all 4,431 stored decisions and wrote the sheet in full.
+
+| outcome | labels (of 4,431 graded) |
+|---|---|
+| supported | 3,654 |
+| unsupported | 392: the 301 validated at entry, and 91 on a field both checkers, or the code, answered no |
+| disputed | 380 |
+| unverified | 5 |
+
+Disputes sheet: 426 rows over the 380 disputed labels (category 277, year 86, quote 63;
+18 of the category rows are the approval fact). On the category rows Sonnet says no and Opus partly on
+228: the same threshold the previous section describes, now on a person's desk rather than either model's.
+
+Stored origin after v2 (5,113 labelled rows), beside v1:
+
+| origin | v1 (Sonnet alone) | v2 |
+|---|---|---|
+| unclear | 1,582 | 1,459 (682 ungraded, 392 unsupported, 380 disputed, 5 unverified) |
+| diseased_tissue | 850 | 870 |
+| animal_model_pharmacology | 797 | 833 |
+| human_cell_perturbation | 425 | 439 |
+| earlier_drug_other_disease | 361 | 388 |
+| clinical_observation | 302 | 322 |
+| observational_biomarker | 245 | 252 |
+| human_genetics | 170 | 175 |
+| mouse_genetics | 172 | 176 |
+| tumour_genetics | 122 | 120 |
+| phenotypic_screen | 66 | 69 |
+| curated_pathway | 6 | 6 |
+| cell_screen | 3 | 4 |
+
+The 301 validated-at-entry rows are unclear with `check_fields.fact = related`, so step 6 can count them as a status
+of their own rather than as missing. Discovery route is unchanged but for the 12 new labels (unclear 1,583,
+derived_from_active 1,385, repurposed_drug 1,159, target_screen 670, de_novo_design 230, phenotypic_screen 86).
+
+**Gates, rerun on the v2 table.** Set a: kappa 0.69 on the label as read (stored 0.52), coverage gap 8.0 points,
+passed. Set b: 0.65 (stored 0.55), gap 8.0, passed. The gate is scored on the label as read, which v2 does not
+touch; the stored kappas are reported beside it as before.
+
+**What this leaves.** The disputes read, the owner's by default (the #146 note offers it back); every verdict moves
+one row out of unclear, and unread rows stay unclear with the count reported. The residual the check cannot remove:
+two capable models disagree on the category judgment on 380 of 4,431 graded labels, and the audit reports that
+rate rather than present the check as exact.
