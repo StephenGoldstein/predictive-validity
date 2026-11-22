@@ -775,3 +775,160 @@ def test_check_update_params_restore_the_label_when_supported():
     assert dis[:2] == ("disputed", 5) and dis[-2:] == ("ENSG1", "MONDO:1") and len(dis) == 5
     assert to.CHECK_UPDATE_SQL["disputed"].count("%s") == len(dis)
     assert "origin = %s" in to.CHECK_UPDATE_SQL["supported"]
+
+
+# --- research: one model reading settles a factual dispute ---
+
+def rrow(subject_key="ENSG1|MONDO:1", field="quote", fact="", first_drug="", entry="", sonnet="no", opus="yes",
+         **kw) -> dict:
+    return {"subject_key": subject_key, "symbol": "ABC", "disease": "a disease", "cutoff_year": "2010",
+            "origin": "diseased_tissue", "grade": "stated", "definition": "d", "quote": "q", "sources": "PMID:1",
+            "field": field, "fact": fact, "first_drug": first_drug, "entry": entry, "sonnet": sonnet,
+            "sonnet_note": "s", "opus": opus, "opus_note": "o", "verdict": "", "reader": "", "note": "", **kw}
+
+
+def rout(found=None, dates=(), approvals=(), evidence_url=None, evidence="", note="n") -> dict:
+    return {"found": found, "dates": list(dates), "approvals": list(approvals), "evidence_url": evidence_url,
+            "evidence": evidence, "note": note}
+
+
+def rdate(source, year, online_year=None, url="https://u") -> dict:
+    return {"source": source, "year": year, "online_year": online_year, "basis": "issue", "evidence_url": url}
+
+
+def rappr(drug="drug a", regulator="PMDA", date="1988", mondo="MONDO:7", url="https://u", indication="x") -> dict:
+    return {"drug": drug, "regulator": regulator, "date": date, "indication": indication, "mondo_id": mondo,
+            "evidence_url": url}
+
+
+def test_research_rows_are_the_factual_rows_of_the_sheet():
+    s = pd.DataFrame([rrow(field="quote"), rrow(field="year"),
+                      rrow(subject_key="ENSG2|MONDO:1", field="category", fact="none"),
+                      rrow(subject_key="ENSG3|MONDO:1", field="category"),
+                      rrow(subject_key="ENSG4|MONDO:1", field="category", fact="related")])
+    r = to.research_rows(s)
+    assert list(zip(r.subject_key, r.field, r.question)) == [("ENSG1|MONDO:1", "quote", "quote"),
+                                                             ("ENSG1|MONDO:1", "year", "year"),
+                                                             ("ENSG2|MONDO:1", "category", "approval")]
+    assert to.research_key("ENSG1|MONDO:1", "year") == "ENSG1|MONDO:1|year"
+    assert to.split_key("ENSG1|MONDO:1|year") == ("ENSG1", "MONDO:1")  # the summary's token SQL still finds the pair
+
+
+def test_research_payload_withholds_the_checkers_answers_and_carries_the_question():
+    row = rrow(field="category", fact="none", first_drug="drug a", entry="2008-01-01", sonnet="no", opus="partly")
+    p = to.research_payload(cpayload(origin="earlier_drug_other_disease"), {**row, "question": "approval"},
+                            ["drug a", "drug b"])
+    assert p["question"] == "approval" and p["first_drug"] == "drug a" and p["entry"] == "2008-01-01"
+    assert p["gene_drugs"] == ["drug a", "drug b"] and p["records"] == cpayload()["records"]
+    assert not any(k.startswith(("sonnet", "opus")) for k in p) and "label_decision_id" not in p
+    q = to.research_payload(cpayload(), {**rrow(), "question": "quote"}, ["drug a"])
+    assert q["question"] == "quote" and "gene_drugs" not in q and "first_drug" not in q
+    text = to.render_research(p)
+    assert text.startswith("QUESTION: approval") and "ENTRY DATE: 2008-01-01" in text and "drug a; drug b" in text
+    assert "CITED RECORDS" in text and to.render_research(q).startswith("QUESTION: quote")
+
+
+def test_validate_research_requires_the_answer_the_question_needs():
+    quote = {**cpayload(), "question": "quote"}
+    year = {**cpayload(sources=("PMID:1", "https://x")), "question": "year"}
+    appr = {**cpayload(origin="earlier_drug_other_disease"), "question": "approval", "entry": "2008-01-01"}
+    to.validate_research(quote, rout(found="yes", evidence_url="PMID:1"))
+    to.validate_research(quote, rout(found="could_not_open"))
+    with pytest.raises(ValueError):
+        to.validate_research(quote, rout(found=None))
+    with pytest.raises(ValueError):
+        to.validate_research(quote, rout(found="yes"))  # found where?
+    to.validate_research(year, rout(dates=[rdate("PMID:1", 2005), rdate("https://x", None)]))
+    with pytest.raises(ValueError):
+        to.validate_research(year, rout(dates=[rdate("PMID:1", 2005)]))  # one entry per cited source
+    to.validate_research(appr, rout())
+    to.validate_research(appr, rout(approvals=[rappr(date="1988-03-01"), rappr(mondo=None)]))
+    for bad in (rappr(date="March 1988"), rappr(mondo="7"), rappr(url="")):
+        with pytest.raises(ValueError):
+            to.validate_research(appr, rout(approvals=[bad]))
+
+
+def test_research_verdict_quote_is_the_finding_with_its_evidence():
+    p = {**cpayload(), "question": "quote"}
+    assert to.research_verdict(p, rout(found="yes", evidence_url="https://pmc/1", evidence="the words"), None, {}) == \
+        ("yes", "https://pmc/1: the words; n")
+    assert to.research_verdict(p, rout(found="no", note="it is in PMID:9, not cited"), None, {}) == \
+        ("no", "it is in PMID:9, not cited")
+    assert to.research_verdict(p, rout(found="could_not_open"), None, {})[0] == ""
+
+
+def test_research_verdict_year_is_compared_in_code_on_the_issue_year():
+    p = {**cpayload(sources=("PMID:1", "https://x")), "question": "year"}  # cutoff 2010
+    v, note = to.research_verdict(p, rout(dates=[rdate("PMID:1", 2005), rdate("https://x", 2009)]), None, {})
+    assert v == "yes" and note.startswith("PMID:1 2005; https://x 2009")
+    assert to.research_verdict(p, rout(dates=[rdate("PMID:1", 2005), rdate("https://x", 2010)]), None, {})[0] == "no"
+    assert to.research_verdict(p, rout(dates=[rdate("PMID:1", 2005), rdate("https://x", None)]), None, {})[0] == ""
+    # an online-first date in an earlier year is recorded and flagged, never used for the verdict
+    v, note = to.research_verdict(p, rout(dates=[rdate("PMID:1", 2005), rdate("https://x", 2010, 2009)]), None, {})
+    assert v == "no" and "online 2009" in note and "online-first" in note
+
+
+def test_research_verdict_approval_tiers_by_the_index_rule(monkeypatch):
+    from types import SimpleNamespace
+    close, related = frozenset({"MONDO:1", "MONDO:9"}), frozenset({"MONDO:1", "MONDO:9", "MONDO:5"})
+    nb = SimpleNamespace(terms=lambda d, t: close if t == 0.8 else related)
+    labels = {"MONDO:1": "a disease", "MONDO:5": "a cousin", "MONDO:9": "a subtype", "MONDO:7": "far away"}
+    p = {**cpayload(origin="earlier_drug_other_disease"), "question": "approval", "entry": "2008-01-01",
+         "first_drug": "drug a", "gene_drugs": ["drug a"]}
+    v, note = to.research_verdict(p, rout(approvals=[rappr(mondo="MONDO:7")]), nb, labels)
+    assert v == "yes" and note == "tier unrelated: drug a, PMDA 1988, far away (MONDO:7) https://u; n"
+    assert to.research_verdict(p, rout(approvals=[rappr(mondo="MONDO:5")]), nb, labels)[0] == "no"
+    assert to.research_verdict(p, rout(approvals=[rappr(mondo="MONDO:9"), rappr(mondo="MONDO:7")]), nb, labels)[1] \
+        .startswith("tier close")
+    monkeypatch.setitem(to.FACT_CATEGORY, "related", "yes")  # decision 1 on #146 propagates on a rerun
+    assert to.research_verdict(p, rout(approvals=[rappr(mondo="MONDO:5")]), nb, labels)[0] == "yes"
+    # no approval found, or none before entry: the category does not follow
+    assert to.research_verdict(p, rout(note="searched PMDA, EMA"), nb, labels) == \
+        ("no", "no approval before 2008-01-01; searched PMDA, EMA")
+    assert to.research_verdict(p, rout(approvals=[rappr(date="2009-05-01", mondo="MONDO:7")]), nb, labels)[0] == "no"
+    assert to.research_verdict(p, rout(approvals=[rappr(date="2007-12-31", mondo="MONDO:7")]), nb, labels)[0] == "yes"
+    # undecidable: an approval in the entry year without a day, or an indication the ontology does not know
+    assert to.research_verdict(p, rout(approvals=[rappr(date="2008", mondo="MONDO:7")]), nb, labels)[0] == ""
+    v, note = to.research_verdict(p, rout(approvals=[rappr(mondo="MONDO:3")]), nb, labels)
+    assert v == "" and "MONDO:3" in note
+    assert to.research_verdict(p, rout(approvals=[rappr(mondo=None)]), nb, labels)[0] == ""
+    # ... unless a close approval is already documented, which settles the tier whatever the others are
+    assert to.research_verdict(p, rout(approvals=[rappr(mondo="MONDO:9"), rappr(mondo=None)]), nb, labels)[0] == "no"
+
+
+def test_research_task_is_opus_v1_with_search_and_fetch_and_no_checker_answers():
+    t = to.RESEARCH_TASK
+    assert t.name == "target_origin_research" and t.prompt_version == "v1" and t.model == "claude-opus-5-5"
+    assert [x["name"] for x in t.tools] == ["web_search", "web_fetch"] and t.validate is to.validate_research
+    assert t.render is to.render_research and t.schema is to.RESEARCH_SCHEMA
+    assert to.RESEARCH_METHOD == "target_origin_research@v1"
+    assert "not shown their answers" in t.system and "Nothing you know from memory counts" in t.system
+
+
+def test_research_sheet_is_a_filled_copy_of_the_disputes_rows(tmp_path):
+    rows = to.research_rows(pd.DataFrame([rrow(field="quote"), rrow(field="year"),
+                                          rrow(subject_key="ENSG2|MONDO:1", field="category", fact="none")]))
+    verdicts = {"ENSG1|MONDO:1|quote": ("yes", "https://u: words", 11),
+                "ENSG1|MONDO:1|year": ("", "https://x shows no date", 12)}  # ENSG2: no validated decision
+    out = to.research_sheet(rows, verdicts)
+    assert list(out.columns) == to.DISPUTE_COLUMNS + ["decision_id"]
+    assert list(out.verdict) == ["yes", "", ""] and list(out.reader) == [to.RESEARCH_METHOD, to.RESEARCH_METHOD, ""]
+    assert list(out.note) == ["https://u: words", "https://x shows no date", ""]
+    assert list(out.decision_id) == ["11", "12", ""]
+    path = tmp_path / "r.csv"
+    out.to_csv(path, index=False)
+    assert to.read_disputes(path) == {"ENSG1|MONDO:1": {"quote": "yes"}}  # check --disputes applies it as it is
+
+
+def test_research_agreement_counts_each_checker_against_the_verdict():
+    out = pd.DataFrame([rrow(field="quote", sonnet="no", opus="yes", verdict="yes"),
+                        rrow(field="quote", sonnet="no", opus="yes", verdict="no"),
+                        rrow(field="quote", sonnet="could_not_open", opus="yes", verdict=""),
+                        rrow(field="year", sonnet="yes", opus="no", verdict="no"),
+                        rrow(field="category", fact="none", sonnet="no", opus="partly", verdict="yes")])
+    a = to.research_agreement(out).set_index("field")
+    assert list(a.index) == ["quote", "year", "category"]
+    assert a.loc["quote"].to_dict() == {"rows": 3, "decided": 2, "yes": 1, "no": 1, "agrees_sonnet": 1,
+                                        "agrees_opus": 1, "agrees_neither": 0}
+    assert a.loc["year"].agrees_sonnet == 0 and a.loc["year"].agrees_opus == 1
+    assert a.loc["category"].agrees_opus == 1 and a.loc["category"].agrees_sonnet == 0  # partly counts as yes

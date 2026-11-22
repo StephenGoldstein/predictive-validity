@@ -1031,6 +1031,273 @@ def check(args) -> None:
         f"(by field {sheet.field.value_counts().to_dict() if len(sheet) else {}}) runs={params['runs']}")
 
 
+# --- research: one model reading, with search and fetch, settles a factual dispute ---
+
+RESEARCH_SYSTEM = f"""You settle one disputed fact about a label of what first proposed a drug target for a disease. Two checkers answered the question differently; you are not shown their answers. You are given the label (origin, grade, quote, sources with the years the labeller gave), the cutoff year, the full text of every cited record that was among the records shown to the labeller, the category definitions, and the question. Search and fetch as you need. Nothing you know from memory counts: every answer rests on a page you fetched in this conversation or a record shown to you. Name that page in evidence_url and copy the words or dates you read into evidence. Leave what the question does not ask for empty: found null, dates and approvals empty lists.
+
+QUESTION quote. Is the quote, or the sentence it closely paraphrases, in a cited source? A cited PubMed or Europe PMC URL is shown to you as a record: read the record, and fetch the full text only if the quote is not in its abstract. Fetch every other cited URL. If a page cannot be fetched, find the same document elsewhere (the journal's site, PubMed Central, Europe PMC, a preprint or patent host, the Internet Archive) and read it there. found: yes if you read the passage in a copy of a cited document (evidence_url names the copy); no if you read a copy of every cited document and the passage is in none of them (say in the note where else it occurs, if you found it); could_not_open if no copy of some cited document could be read.
+
+QUESTION year. When was each cited source published? Give one entry per cited source, in the order cited: year, the publication year the publisher's record gives (for a journal article the year of the issue, as PubMed dates it; for a patent the publication date, not the priority or filing date; for a web page the date the page itself shows), or null when no date could be read; online_year, the year of an earlier online-first date when the record shows one, else null; basis, what the year was read from; evidence_url, the page it was read from. A cited PubMed or Europe PMC URL is shown as a record with its year: keep that year.
+
+QUESTION approval. Before the entry date, was any of the drugs listed as acting on this gene approved by a medicines regulator anywhere (the FDA, the EMA or an EU member state, Japan's PMDA, Australia's TGA, Health Canada, China's NMPA, or a national authority from before these registries), and for which disease? The FDA's own index has no approval on this gene before the entry date, so look beyond it, and look at the first drug first. Give every approval you can document from a regulator's record or a dated source, each with the drug, the regulator, the date (YYYY-MM-DD, or the year alone when that is all the record gives), the indication as the record states it, the MONDO id of that indication (look it up on the Monarch Initiative or the EBI Ontology Lookup Service; null when you cannot find one), and evidence_url. An empty list means you searched and found none; say in the note what you searched.
+
+note: one sentence.
+
+Categories:
+{DEFINITIONS}"""
+
+RESEARCH_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "properties": {
+        "found": {"anyOf": [{"type": "string", "enum": ["yes", "no", "could_not_open"]}, {"type": "null"}]},
+        "dates": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"source": {"type": "string"}, "year": {"type": ["integer", "null"]},
+                           "online_year": {"type": ["integer", "null"]}, "basis": {"type": "string"},
+                           "evidence_url": {"type": "string"}},
+            "required": ["source", "year", "online_year", "basis", "evidence_url"]}},
+        "approvals": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"drug": {"type": "string"}, "regulator": {"type": "string"}, "date": {"type": "string"},
+                           "indication": {"type": "string"}, "mondo_id": {"type": ["string", "null"]},
+                           "evidence_url": {"type": "string"}},
+            "required": ["drug", "regulator", "date", "indication", "mondo_id", "evidence_url"]}},
+        "evidence_url": {"type": ["string", "null"]},
+        "evidence": {"type": "string"},
+        "note": {"type": "string"}},
+    "required": ["found", "dates", "approvals", "evidence_url", "evidence", "note"],
+}
+RESEARCH_TOOLS = [{**TOOLS[0], "max_uses": 10}, {**TOOLS[1], "max_uses": 6}]
+RESEARCH_METHOD = "target_origin_research@v1"
+RESEARCH_CSV = os.path.join(frame.REPO, "report", "audits", "target_origin_disputes_research.csv")
+RESEARCH_QUESTION = {"quote": "quote", "year": "year", "category": "approval"}  # sheet field -> question
+MONDO_ID = re.compile(r"^MONDO:\d+$")
+APPROVAL_DATE = re.compile(r"^\d{4}(-\d{2}-\d{2})?$")
+CHECKER_AS_VERDICT = {"quote": {"yes": "yes", "no": "no"}, "year": {"yes": "yes", "no": "no"},
+                      "category": {"yes": "yes", "partly": "yes", "no": "no"}}
+
+
+def research_key(subject_key: str, question: str) -> str:
+    return f"{subject_key}|{question}"
+
+
+def research_rows(sheet: pd.DataFrame) -> pd.DataFrame:
+    """The factual rows of the disputes sheet, with the question each asks: quote and year rows, and category rows
+    of earlier-drug labels the approval index is silent on (fact none). Threshold rows (category, any other fact)
+    are not a research question."""
+    factual = sheet.field.isin(["quote", "year"]) | (sheet.field.eq("category") & sheet.fact.eq("none"))
+    out = sheet[factual].copy()
+    out["question"] = out.field.map(RESEARCH_QUESTION)
+    return out
+
+
+def research_payload(check_item: dict, row: dict, gene_drugs: list[str]) -> dict:
+    """The check payload of the label (what the checkers read) plus the question; for the approval question also the
+    first drug, the entry date and the hub's drugs on the gene. Never the checkers' answers or notes."""
+    p = {k: v for k, v in check_item.items() if k != "label_decision_id"}
+    p["question"] = row["question"]
+    if row["question"] == "approval":
+        p.update(first_drug=row["first_drug"], entry=row["entry"], gene_drugs=list(gene_drugs))
+    return p
+
+
+def render_research(p: dict) -> str:
+    head = [f"QUESTION: {p['question']}"]
+    if p["question"] == "approval":
+        head += [f"FIRST DRUG TESTED IN THE PAIR: {p['first_drug']}; ENTRY DATE: {p['entry']}",
+                 f"DRUGS ON THE GENE ({len(p['gene_drugs'])} in the hub): " + "; ".join(p["gene_drugs"])]
+    return "\n".join(head + [render_check(p)])
+
+
+def validate_research(p: dict, out: dict) -> None:
+    """Raise ValueError when the answer lacks what its question needs; pipeline.llm then stores it as invalid and
+    the row is asked again."""
+    q = p["question"]
+    if q == "quote":
+        if out["found"] is None:
+            raise ValueError("quote: found is required")
+        if out["found"] == "yes" and not out["evidence_url"]:
+            raise ValueError("quote: found yes needs the copy it was read in (evidence_url)")
+    elif q == "year":
+        if len(out["dates"]) != len(p["sources"]):
+            raise ValueError(f"year: {len(out['dates'])} dates for {len(p['sources'])} cited sources")
+    elif q == "approval":
+        for a in out["approvals"]:
+            if not APPROVAL_DATE.match(a["date"]):
+                raise ValueError(f"approval: date {a['date']!r} is not YYYY-MM-DD or YYYY")
+            if a["mondo_id"] is not None and not MONDO_ID.match(a["mondo_id"]):
+                raise ValueError(f"approval: {a['mondo_id']!r} is not a MONDO id")
+            if not a["evidence_url"]:
+                raise ValueError("approval: every approval needs its evidence_url")
+
+
+RESEARCH_TASK = llm.Task(name="target_origin_research", prompt_version="v1", schema_version="v1",
+                         system=RESEARCH_SYSTEM, schema=RESEARCH_SCHEMA, render=render_research,
+                         validate=validate_research, subject_type="target_disease", model="claude-opus-5-5",
+                         effort="medium", max_tokens=8000, tools=RESEARCH_TOOLS)
+
+RESEARCH_DESCRIPTION = f"""For each factual row of the disputes sheet of {CHECK_METHOD} (field quote or year, or category
+where the approval fact is none; #146 proposal of 2026-11-21 evening): task {RESEARCH_TASK.name}
+{RESEARCH_TASK.prompt_version} ({RESEARCH_TASK.model}, effort {RESEARCH_TASK.effort}), with web search and fetch,
+reads the label, its quote and sources and the cited records, never the checkers' answers, and answers one
+question. quote: found yes or no in a copy of a cited document, could_not_open when none could be read. year: the
+publication year of every cited source on the publisher's record (the issue year, as PubMed dates the records), an
+earlier online-first year recorded beside it; the verdict is computed in code, yes when every year is before the
+cutoff, no when any is not, open when any is unread. approval: every approval of a drug the hub lists on the gene
+by any medicines regulator before the entry date, with the regulator, the date, the indication and its MONDO id;
+the tier is computed in code by the index's rule (close within Lin {{CLOSE}}, related within Lin {{RELATED}}, else
+unrelated) and the verdict is FACT_CATEGORY of the tier; no approval found or none before entry is no; an approval
+in the entry year without a day, or an indication without a MONDO id in the ontology, leaves the row open unless a
+close approval is documented. The verdicts are written to a filled copy of the sheet ({os.path.basename(RESEARCH_CSV)},
+reader {RESEARCH_METHOD}); no table row changes; `check --disputes` on that file applies them."""
+
+
+def before_entry(date: str, entry: pd.Timestamp) -> bool | None:
+    """Whether an approval date (YYYY-MM-DD or YYYY) is before the entry date; None when the year alone cannot say."""
+    if len(date) == 10:
+        return pd.Timestamp(date) < entry
+    y = int(date[:4])
+    return True if y < entry.year else (False if y > entry.year else None)
+
+
+def research_verdict(p: dict, out: dict, nb, labels: dict[str, str]) -> tuple[str, str]:
+    """(verdict, note) of one research decision: yes, no, or '' when the question stays open. The year and the tier
+    are compared in code; the model supplies dates, places and records."""
+    from report.section3 import CLOSE, RELATED
+    q = p["question"]
+    tail = [out["note"]] if out["note"] else []
+    if q == "quote":
+        where = f"{out['evidence_url']}: {out['evidence']}" if out["evidence_url"] else out["evidence"]
+        return {"yes": "yes", "no": "no", "could_not_open": ""}[out["found"]], "; ".join(filter(None, [where, *tail]))
+    if q == "year":
+        cutoff = p["cutoff_year"]
+        years = [d["year"] for d in out["dates"]]
+        parts = [f"{d['source']} {d['year']}" + (f" (online {d['online_year']})" if d["online_year"] else "")
+                 for d in out["dates"]]
+        if any(y is None for y in years):
+            verdict = ""
+        else:
+            verdict = "yes" if all(y < cutoff for y in years) else "no"
+            online = all((d["online_year"] or d["year"]) < cutoff for d in out["dates"])
+            if online != (verdict == "yes"):
+                parts.append("the online-first basis would flip this verdict")
+        return verdict, "; ".join(parts + tail)
+    entry = pd.Timestamp(p["entry"])
+    found, open_, later = [], [], []
+    for a in out["approvals"]:
+        head = f"{a['drug']}, {a['regulator']} {a['date']}"
+        before = before_entry(a["date"], entry)
+        if before is None:
+            open_.append(f"{head}: in the entry year, no day given")
+        elif not before:
+            later.append(head)
+        elif a["mondo_id"] is None:
+            open_.append(f"{head}, {a['indication']}: no MONDO id")
+        elif a["mondo_id"] not in labels:
+            open_.append(f"{head}, {a['indication']}: {a['mondo_id']} is not in the ontology")
+        else:
+            m = a["mondo_id"]
+            tier = ("close" if m in nb.terms(p["mondo_id"], CLOSE)
+                    else "related" if m in nb.terms(p["mondo_id"], RELATED) else "unrelated")
+            found.append((tier, f"{head}, {labels[m]} ({m}) {a['evidence_url']}"))
+    tiers = {t for t, _ in found}
+    if "close" not in tiers and open_:
+        return "", "; ".join(["unresolved: " + "; ".join(open_), *tail])
+    if not found:
+        return "no", "; ".join([f"no approval before {entry.date()}"] + (["later: " + "; ".join(later)] if later else [])
+                               + tail)
+    fact = "close" if "close" in tiers else "related" if "related" in tiers else "unrelated"
+    return FACT_CATEGORY[fact], "; ".join([f"tier {fact}: " + "; ".join(s for _, s in found), *tail])
+
+
+def research_sheet(rows: pd.DataFrame, verdicts: dict[str, tuple[str, str, int]]) -> pd.DataFrame:
+    """The research rows as a filled disputes sheet: verdict, reader (the method) and note from each decided row
+    (research_key -> (verdict, note, decision id)), plus the decision id; a row without a decision stays empty."""
+    got = [verdicts.get(research_key(r.subject_key, r.question)) for r in rows.itertuples()]
+    out = rows.drop(columns=["question"]).copy()
+    out["verdict"] = [v[0] if v else "" for v in got]
+    out["reader"] = [RESEARCH_METHOD if v else "" for v in got]
+    out["note"] = [v[1] if v else "" for v in got]
+    out["decision_id"] = [str(v[2]) if v else "" for v in got]
+    return out[DISPUTE_COLUMNS + ["decision_id"]].reset_index(drop=True)
+
+
+def research_agreement(sheet: pd.DataFrame) -> pd.DataFrame:
+    """Per field: rows, decided rows, verdicts, and how many decided rows agree with Sonnet's answer, with Opus's,
+    with neither (a checker's partly counts as yes; could_not_open and unknown agree with nothing)."""
+    rows = []
+    for field, s in sheet.groupby("field", sort=False):
+        d = s[s.verdict.ne("")]
+        sonnet = d.sonnet.map(CHECKER_AS_VERDICT[field]).eq(d.verdict)
+        opus = d.opus.map(CHECKER_AS_VERDICT[field]).eq(d.verdict)
+        rows.append({"field": field, "rows": len(s), "decided": len(d), "yes": int(d.verdict.eq("yes").sum()),
+                     "no": int(d.verdict.eq("no").sum()), "agrees_sonnet": int(sonnet.sum()),
+                     "agrees_opus": int(opus.sum()), "agrees_neither": int((~sonnet & ~opus).sum())})
+    return pd.DataFrame(rows, columns=["field", "rows", "decided", "yes", "no", "agrees_sonnet", "agrees_opus",
+                                       "agrees_neither"])
+
+
+def gene_drugs(ensembl_ids: set[str]) -> dict[str, list[str]]:
+    """ensembl_id -> the names of the hub's moieties on the gene (pipeline.target_history.targets), sorted."""
+    from collections import defaultdict
+
+    from pipeline.target_history import targets
+    t = targets()[["moiety_id", "ens"]].drop_duplicates()
+    t = t[t.ens.isin(ensembl_ids)]
+    names = frame.query("SELECT moiety_id, name FROM preclin.moiety").set_index("moiety_id").name.to_dict()
+    out: dict[str, set] = defaultdict(set)
+    for m, e in zip(t.moiety_id, t.ens):
+        out[e].add(names.get(m, str(m)))
+    return {e: sorted(v, key=str.lower) for e, v in out.items()}
+
+
+def research_items(rows: pd.DataFrame, items: dict[str, dict], drugs: dict[str, list[str]]) -> dict[str, dict]:
+    out = {}
+    for r in rows.itertuples():
+        p = items.get(r.subject_key)
+        if p is not None:
+            out[research_key(r.subject_key, r.question)] = research_payload(p, r._asdict(), drugs.get(p["ensembl_id"], []))
+    return out
+
+
+def research(args) -> None:
+    from report.section3 import neighbourhood
+    rows = research_rows(read_sheet(args.disputes))
+    pairs = pair_frame(args.pairs)
+    keys = set(rows.subject_key)
+    pairs = pairs[[key(e, m) in keys for e, m in zip(pairs.ensembl_id, pairs.mondo_id)]]
+    items = check_items(pairs)
+    drugs = gene_drugs(set(pairs.ensembl_id))
+    every = research_items(rows, items, drugs)
+    log(f"sheet rows={len(rows)} ({rows.question.value_counts().to_dict()}) labels={len(items)} items={len(every)}")
+    outputs, runs, todo = {}, [], dict(every)
+    for _ in range(LABEL_PASSES):
+        if not todo:
+            break
+        run_id = llm.run(RESEARCH_TASK, todo)
+        runs.append(str(run_id))
+        new = llm.decisions(run_id)
+        for k, i, o in new:
+            outputs[k] = (i, o)
+        todo = undecided(todo, new)
+    nb, labels = neighbourhood(), mondo_labels()
+    verdicts = {k: (*research_verdict(every[k], o, nb, labels), i) for k, (i, o) in outputs.items()}
+    out = research_sheet(rows, verdicts)
+    out.to_csv(args.out, index=False)
+    params = {"task": RESEARCH_TASK.name, "prompt_version": RESEARCH_TASK.prompt_version, "model": RESEARCH_TASK.model,
+              "effort": RESEARCH_TASK.effort, "tools": RESEARCH_TOOLS, "disputes": args.disputes, "out": args.out,
+              "runs": runs, "unanswered": sorted(todo), "fact_category": FACT_CATEGORY}
+    inputs = [args.disputes, "preclin.target_disease_origin", "preclin.target_disease_source", "pv_evidence.llm_decision",
+              "preclin.moiety (pipeline.target_history.targets)", "preclin.ontology_term", "web search", "web fetch"]
+    with llm.connect() as conn, conn.cursor() as cur:
+        llm.record_method(cur, RESEARCH_METHOD, "Research pass on the factual disputes of the origin check",
+                          RESEARCH_DESCRIPTION, inputs, params)
+        conn.commit()
+    log("agreement:\n" + research_agreement(out).to_string(index=False))
+    log(f"decided={int(out.verdict.ne('').sum())} open={int(out.verdict.eq('').sum())} unanswered={len(todo)} "
+        f"runs={runs} -> {args.out}")
+
+
 # --- blind coder ---
 
 BLIND_SYSTEM = f"""You label what first proposed a drug target for a disease: the evidence that made someone think the target was worth a drug in that disease, before any drug on it was tested in patients for it. You are given the gene, the disease, the cutoff year and the records naming both that were published before it (the earliest and the latest, with the total count). You may search and read the web. Only a source dated before the cutoff year counts: a later source, including a later history or review, is not evidence of what proposed the hypothesis at the time and must not be cited. Nothing you know from memory counts without a source.
@@ -1597,6 +1864,13 @@ def add_commands(sub) -> None:
     p.add_argument("--disputes", default=os.path.join(frame.REPO, "report", "audits", "target_origin_disputes.csv"),
                    help="the disputes sheet: human verdicts are read from it, then it is rewritten with the open ones")
     p.set_defaults(fn=check)
+    p = sub.add_parser("research", help="one model reading with search and fetch settles the factual disputes "
+                                        "(quote, year, approval) into a filled copy of the sheet; no table write")
+    pairs_option(p, default="window")
+    p.add_argument("--disputes", default=os.path.join(frame.REPO, "report", "audits", "target_origin_disputes.csv"),
+                   help="the disputes sheet whose factual rows are researched")
+    p.add_argument("--out", default=RESEARCH_CSV, help="where the filled copy is written")
+    p.set_defaults(fn=research)
     p = sub.add_parser("blind", help="second model labels a hand-check set from the records alone")
     pairs_option(p, default="set_a")
     p.set_defaults(fn=blind)
