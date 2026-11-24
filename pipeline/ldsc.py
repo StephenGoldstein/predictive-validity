@@ -56,6 +56,7 @@ GWS = 5e-8
 CLUMP_R2, CLUMP_KB = 0.1, 1000
 TOP = 10
 CHUNK = 1_000_000   # rows per chunk when a harmonised file is streamed
+STREAMS = 32            # byte-range segments fetched concurrently per summary-statistics file (EBI throttles each connection)
 P_FLOOR = 1e-300    # p below the double range reads as 0 and munge would drop the SNP
 LOG_HEAD, LOG_TAIL = 5_000, 15_000
 # The harmonised files come in two layouts: the older one with hm_ columns, the GWAS-SSF one without the prefix
@@ -283,7 +284,7 @@ def run(gcst: str) -> dict:
     status = "fetch_failed"
     try:
         try:
-            raw = download(SUMSTATS_BASE + s["path"], os.path.join(work, "raw.h.tsv.gz"))
+            raw = download(SUMSTATS_BASE + s["path"], os.path.join(work, "raw.h.tsv.gz"), streams=STREAMS)
         except Exception as e:  # noqa: BLE001
             log.append(f"fetch: {e}")
             return {"gcst": gcst, "status": status}

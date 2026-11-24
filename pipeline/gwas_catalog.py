@@ -21,10 +21,12 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import re
 import time
 import zipfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import requests
@@ -52,32 +54,66 @@ CASES = re.compile(r"(\d[\d,]*)\s+[^,\d]*?\bcases\b", re.I)
 CONTROLS = re.compile(r"(\d[\d,]*)\s+[^,\d]*?\bcontrols\b", re.I)
 
 
-def download(url: str, dest: str, attempts: int = 6) -> str:
-    """Stream url to dest through dest.part, resuming a partial file, with attempts tries; returns dest."""
+def download(url: str, dest: str, attempts: int = 6, streams: int = 1) -> str:
+    """Stream url to dest through dest.part, resuming a partial file, with attempts tries; returns dest. With
+    streams > 1 and a server that accepts byte ranges, the file arrives as that many concurrent segments
+    (dest.part0, dest.part1, ...), each resumable, joined in order; a legacy dest.part finishes on one stream."""
     if os.path.exists(dest):
         return dest
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     part = dest + ".part"
+    total = segmentable(url) if streams > 1 and not os.path.exists(part) else None
+    if total is None:
+        _fetch(url, part, 0, None, attempts)
+    else:
+        size = -(-total // streams)
+        bounds = [(i * size, min((i + 1) * size, total)) for i in range(streams) if i * size < total]
+        with ThreadPoolExecutor(len(bounds)) as pool:
+            list(pool.map(lambda ib: _fetch(url, f"{part}{ib[0]}", ib[1][0], ib[1][1], attempts), enumerate(bounds)))
+        with open(part, "wb") as out:
+            for i in range(len(bounds)):
+                with open(f"{part}{i}", "rb") as f:
+                    shutil.copyfileobj(f, out)
+                os.remove(f"{part}{i}")
+    os.replace(part, dest)
+    return dest
+
+
+def segmentable(url: str) -> int | None:
+    """The file's length when the server accepts byte ranges, else None."""
+    try:
+        r = requests.head(url, allow_redirects=True, timeout=60)
+        if r.ok and r.headers.get("Accept-Ranges") == "bytes" and r.headers.get("Content-Length"):
+            return int(r.headers["Content-Length"])
+    except requests.RequestException:
+        pass
+    return None
+
+
+def _fetch(url: str, part: str, start: int, end: int | None, attempts: int) -> None:
+    """Bytes [start, end) of url (end None: to the end) appended to part, resuming from its size."""
     for attempt in range(1, attempts + 1):
         try:
             have = os.path.getsize(part) if os.path.exists(part) else 0
-            headers = {"Range": f"bytes={have}-"} if have else {}
+            if end is not None and start + have >= end:
+                return
+            headers = {"Range": f"bytes={start + have}-{'' if end is None else end - 1}"} if have or end is not None else {}
             with requests.get(url, headers=headers, stream=True, timeout=120) as r:
                 if r.status_code == 416:  # nothing left to fetch
-                    break
+                    return
                 r.raise_for_status()
+                if end is not None and r.status_code != 206:
+                    raise requests.HTTPError(f"range ignored for {url}")
                 mode = "ab" if have and r.status_code == 206 else "wb"
                 with open(part, mode) as f:
                     for chunk in r.iter_content(1 << 20):
                         f.write(chunk)
-            break
+            return
         except (requests.RequestException, OSError) as e:
             if attempt == attempts:
                 raise
             time.sleep(15 * attempt)
             print(f"retry {attempt} for {url}: {e}")
-    os.replace(part, dest)
-    return dest
 
 
 def fetch(_args) -> None:
