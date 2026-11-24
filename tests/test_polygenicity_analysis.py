@@ -50,3 +50,15 @@ def test_area_and_no_score_tables_read_their_csvs(tmp_path, monkeypatch):
     assert "| a | 1 / 5 | 3 / 7 |" in area and "| b | 2 / 6 | 0 / 0 |" in area   # one row per area, a column per tertile
     ns = polygenicity_no_score_table()
     assert "| No GWAS study of the disease or a subtype | 10 | 40 |" in ns and ns.index("No GWAS") < ns.index("z = 4")
+
+
+def test_membership_carries_the_study_heritability_prevalence_and_loci():
+    from report.polygenicity import membership
+    u = pd.DataFrame({"mondo_id": ["M1", "M2"], "label": ["a", "b"], "bio_area": ["x", "x"], "entries": [3, 4],
+                      "ldsc_status": ["ok", "ok"], "gcst": ["GCST1", "GCST2"], "trait_level": ["exact", "exact"],
+                      "k_source": ["gbd", "panukb"], "score": [10.0, 40.0], "concentration": [0.2, 0.5],
+                      "mendelian_form": [True, False], "h2_obs": [0.1, 0.2], "h2_z": [5.0, 6.0], "k": [0.01, 0.02],
+                      "h2_liab": [0.3, 0.4], "loci": [3, 16], "n_cases": [1000, 2000], "n_controls": [5000, 6000]})
+    m = membership(u, (20.0, 30.0), (0.3, 0.4))
+    assert list(m.tertile) == ["bottom", "top"] and list(m.conc_tertile) == ["bottom", "top"]
+    assert {"h2_obs", "h2_z", "k", "h2_liab", "loci", "n_cases", "n_controls"} <= set(m.columns)

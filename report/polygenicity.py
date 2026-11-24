@@ -88,8 +88,9 @@ def membership(u: pd.DataFrame, cuts: tuple[float, float] | None, conc_cuts: tup
     m = u.copy()
     m["tertile"] = tertile(m.score, cuts) if cuts else "none"
     m["conc_tertile"] = tertile(m.concentration, conc_cuts) if conc_cuts else "none"
-    cols = ["mondo_id", "label", "bio_area", "entries", "ldsc_status", "gcst", "trait_level", "k_source", "score",
-            "tertile", "concentration", "conc_tertile", "mendelian_form"]
+    cols = ["mondo_id", "label", "bio_area", "entries", "ldsc_status", "gcst", "trait_level", "n_cases", "n_controls",
+            "h2_obs", "h2_z", "k", "k_source", "h2_liab", "loci", "score", "tertile", "concentration", "conc_tertile",
+            "mendelian_form"]
     return m[[c for c in cols if c in m.columns]]
 
 

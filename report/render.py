@@ -669,7 +669,7 @@ def polygenicity_tertiles_table() -> str:
 
 NO_SCORE_REASONS = {"no_study": "No GWAS study of the disease or a subtype", "no_sumstats": "No public harmonised summary statistics",
                     "not_european": "No study of at least 90% European ancestry", "targeted_array": "Targeted genotyping array only",
-                    "no_case_control": "No case-control study", "run_failed": "LDSC run failed",
+                    "no_case_control": "No case-control study", "run_failed": "Summary statistics without effect sizes, or the LDSC run failed",
                     "low_z": "Heritability estimate below z = 4", "no_k": "No population prevalence (GBD or Pan-UKB)",
                     "out_of_bounds": "Liability-scale heritability outside (0, 1]"}
 
