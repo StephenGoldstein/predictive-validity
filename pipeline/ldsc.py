@@ -1,0 +1,312 @@
+"""LDSC SNP heritability, LD clumping and heritability concentration per GWAS Catalog study (issue #147).
+
+    python -m pipeline.ldsc references        # LD scores, HapMap3 list, 1000 Genomes EUR cut to HapMap3 -> .cache/ldsc/
+    python -m pipeline.ldsc check             # the ldsc (Python 3.11 venv) and plink (conda env) tools
+    python -m pipeline.ldsc run GCST...       # one study: fetch, munge, h2, clump, concentration -> preclin.ldsc_run
+    python -m pipeline.ldsc run-all [--retry] [--gcst-file F]   # every study preclin.disease_polygenicity names
+
+Per study: the harmonised summary statistics are streamed from the Catalog's FTP site, cut to the HapMap3 SNPs
+and the columns munge_sumstats needs (rsid, alleles, beta or log odds ratio, p), munged against the HapMap3 list
+with N = cases + controls, and regressed with ldsc --h2 on the European LD scores (observed scale; the liability
+conversion is done later from K, pipeline.polygenicity). The same munged SNPs are clumped with PLINK against the
+1000 Genomes European panel (P <= 5e-8, r2 < 0.1 within 1 Mb): the index SNPs are the independent loci, every
+index SNP in the extended MHC (chr6:25-34 Mb) counted once. The heritability concentration is the share of
+observed-scale h2 carried by the ten index SNPs with the largest z^2, each SNP's h2 taken as (z^2 - 1) / N
+(Melissa's registered sensitivity 3). One study's files are on disk at a time and are deleted when its row is
+written; a rerun skips studies with an ok row.
+
+Tools (TOOLS): ldsc 2.0.1, the Python 3 port of bulik/ldsc, in its own Python 3.11 venv (it pins nose, which
+does not import on 3.12, and reads with pandas < 3); PLINK 1.90b7.7 from bioconda. References (REFERENCES): eur_w_ld_chr from Zenodo
+8182036, w_hm3.snplist from Zenodo 7773502, 1000 Genomes Phase 3 EUR from Zenodo 6614170.
+"""
+from __future__ import annotations
+
+import argparse
+import gzip
+import json
+import os
+import re
+import shutil
+import subprocess
+import tarfile
+import time
+from io import StringIO
+
+import numpy as np
+import pandas as pd
+from psycopg2.extras import Json
+from scipy.stats import norm
+
+from pipeline import llm
+from pipeline.gwas_catalog import SUMSTATS_BASE, download
+
+REF = os.path.join(llm.REPO, ".cache", "ldsc")
+WORK = os.path.join(REF, "work")
+VENV = os.path.join(REF, "venv311")
+PLINK = os.path.expanduser("~/miniforge3/envs/plink/bin/plink")
+CONDA = os.path.expanduser("~/miniforge3/bin/conda")
+TOOLS = {"ldsc": "2.0.1", "plink": "1.90b7.7"}
+LD_REFERENCE = "eur_w_ld_chr (Zenodo 8182036); 1000G_EUR_hm3 (Zenodo 6614170 cut to HapMap3 SNPs)"
+REFERENCES = {"eur_w_ld_chr.tar.gz": 8182036, "w_hm3.snplist.gz": 7773502, "1000G_EUR.bed": 6614170,
+              "1000G_EUR.bim": 6614170, "1000G_EUR.fam": 6614170}
+PANEL = os.path.join(REF, "1000G_EUR_hm3")
+MHC = (6, 25_000_000, 34_000_000)
+GWS = 5e-8
+CLUMP_R2, CLUMP_KB = 0.1, 1000
+TOP = 10
+COLUMNS = ["hm_rsid", "hm_effect_allele", "hm_other_allele", "hm_beta", "hm_odds_ratio", "p_value"]
+STATUSES = ("ok", "no_effect", "fetch_failed", "munge_failed", "h2_failed", "clump_failed")
+
+
+def references(_args) -> None:
+    os.makedirs(REF, exist_ok=True)
+    for name, record in REFERENCES.items():
+        download(f"https://zenodo.org/api/records/{record}/files/{name}/content", os.path.join(REF, name))
+    if not os.path.isdir(os.path.join(REF, "eur_w_ld_chr")):
+        with tarfile.open(os.path.join(REF, "eur_w_ld_chr.tar.gz")) as t:
+            t.extractall(REF, filter="data")
+    snplist = os.path.join(REF, "w_hm3.snplist")
+    if not os.path.exists(snplist):
+        with gzip.open(snplist + ".gz", "rt") as f, open(snplist, "w") as out:
+            out.write(f.read())
+    ids = os.path.join(REF, "w_hm3.ids")
+    if not os.path.exists(ids):
+        pd.read_csv(snplist, sep=r"\s+").SNP.to_csv(ids, index=False, header=False)
+    if not os.path.exists(PANEL + ".bed"):
+        subprocess.run([PLINK, "--bfile", os.path.join(REF, "1000G_EUR"), "--extract", ids, "--make-bed", "--out", PANEL],
+                       check=True, capture_output=True, text=True)
+        for ext in ("bed", "bim", "fam"):
+            os.remove(os.path.join(REF, f"1000G_EUR.{ext}"))
+    print("ld scores:", len(os.listdir(os.path.join(REF, "eur_w_ld_chr"))), "files; hapmap3:", sum(1 for _ in open(ids)),
+          "SNPs; panel:", sum(1 for _ in open(PANEL + ".bim")), "SNPs")
+
+
+def ldsc_cmd(script: str) -> list[str]:
+    """The command for an ldsc entry point (ldsc.py, munge_sumstats.py) in the Python 3.11 venv."""
+    for name in (script, script.removesuffix(".py")):
+        path = os.path.join(VENV, "bin", name)
+        if os.path.exists(path):
+            return [path]
+    return [os.path.join(VENV, "bin", "python"), "-m", "ldsc." + script.removesuffix(".py")]
+
+
+def check(_args) -> None:
+    if not os.path.exists(os.path.join(VENV, "bin", "python")):
+        subprocess.run(["uv", "venv", "--python", "3.11", VENV], check=True)
+        subprocess.run(["uv", "pip", "install", "--python", os.path.join(VENV, "bin", "python"), f"ldsc=={TOOLS['ldsc']}",
+                        "pandas<3"], check=True)  # ldsc 2.0.1 reads with delim_whitespace, removed in pandas 3
+    if not os.path.exists(PLINK):
+        subprocess.run([CONDA, "create", "-y", "-n", "plink", "-c", "bioconda", f"plink={TOOLS['plink']}"], check=True)
+    for cmd in (ldsc_cmd("ldsc.py") + ["-h"], ldsc_cmd("munge_sumstats.py") + ["-h"], [PLINK, "--version"]):
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit(f"{cmd[0]} failed:\n{r.stdout}\n{r.stderr}")
+        print(cmd[0].split("/")[-1], (r.stdout or r.stderr).strip().splitlines()[0])
+
+
+def munge_input(h: pd.DataFrame) -> pd.DataFrame | None:
+    """SNP, A1, A2, BETA, P from a harmonised frame: beta, else log odds ratio; None when no row has an effect."""
+    beta = pd.to_numeric(h["hm_beta"], errors="coerce")
+    odds = pd.to_numeric(h["hm_odds_ratio"], errors="coerce")
+    beta = beta.where(beta.notna(), np.log(odds.where(odds > 0)))
+    out = pd.DataFrame({"SNP": h["hm_rsid"], "A1": h["hm_effect_allele"], "A2": h["hm_other_allele"], "BETA": beta,
+                        "P": pd.to_numeric(h["p_value"], errors="coerce")})
+    out = out[out.BETA.notna() & out.SNP.notna() & out.A1.notna() & out.A2.notna()].reset_index(drop=True)
+    return out if len(out) else None
+
+
+H2_LINES = {"h2_obs": r"Total Observed scale h2: ([-\d.e]+) \(([\d.e-]+)\)", "intercept": r"Intercept: ([-\d.e]+) \(([\d.e-]+)\)",
+            "ratio": r"Ratio: ([-\d.e]+) \(([\d.e-]+)\)", "lambda_gc": r"Lambda GC: ([-\d.e]+)",
+            "mean_chi2": r"Mean Chi\^2: ([-\d.e]+)", "n_snps": r"After merging with regression SNP LD, (\d+) SNPs remain"}
+
+
+def parse_h2_log(text: str) -> dict:
+    out = {}
+    for key, pattern in H2_LINES.items():
+        m = re.search(pattern, text)
+        if key == "h2_obs":
+            out["h2_obs"], out["h2_obs_se"] = (float(m.group(1)), float(m.group(2))) if m else (None, None)
+        elif key == "n_snps":
+            out[key] = int(m.group(1)) if m else None
+        else:
+            out[key] = float(m.group(1)) if m else None
+    return out
+
+
+def parse_clumped(text: str) -> pd.DataFrame:
+    """The index SNPs of a PLINK .clumped file: SNP, CHR, BP, P."""
+    if not text.strip():
+        return pd.DataFrame(columns=["SNP", "CHR", "BP", "P"])
+    c = pd.read_csv(StringIO(text), sep=r"\s+")
+    return c[["SNP", "CHR", "BP", "P"]].astype({"CHR": int, "BP": int, "P": float}).reset_index(drop=True)
+
+
+def loci(index: pd.DataFrame) -> int:
+    """Index SNPs as loci, the extended MHC counted once."""
+    mhc = (index.CHR == MHC[0]) & index.BP.between(MHC[1], MHC[2])
+    return int((~mhc).sum() + (1 if mhc.any() else 0))
+
+
+def concentration(z2: pd.Series, n: int, h2_obs: float | None) -> tuple[float | None, list[dict]]:
+    """(share of h2_obs in the TOP largest z^2, those SNPs): per-SNP h2 = (z^2 - 1) / n."""
+    if h2_obs is None or not np.isfinite(h2_obs) or h2_obs <= 0 or not len(z2):
+        return None, []
+    top = z2.sort_values(ascending=False).head(TOP)
+    rows = [{"snp": str(k), "z2": float(v), "h2": float((v - 1) / n)} for k, v in top.items()]
+    return float(sum(r["h2"] for r in rows) / h2_obs), rows
+
+
+def study(gcst: str) -> dict:
+    with llm.connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT sumstats_path, cases, controls FROM preclin.gwas_catalog_study WHERE gcst = %s", (gcst,))
+        row = cur.fetchone()
+    if row is None or row[0] is None or row[1] is None or row[2] is None:
+        raise ValueError(f"{gcst}: no harmonised summary statistics or no case-control counts")
+    return {"gcst": gcst, "path": row[0], "cases": int(row[1]), "controls": int(row[2])}
+
+
+def _run(cmd: list[str], log: list[str]) -> bool:
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    log.append(f"$ {' '.join(cmd)}\n{r.stdout}\n{r.stderr}")
+    return r.returncode == 0
+
+
+def hapmap_ids() -> set[str]:
+    return set(open(os.path.join(REF, "w_hm3.ids")).read().split())
+
+
+def read_sumstats(path: str, keep: set[str]) -> pd.DataFrame | None:
+    """The munge input from a harmonised file, streamed in chunks and cut to the HapMap3 SNPs."""
+    parts = []
+    for chunk in pd.read_csv(path, sep="\t", usecols=COLUMNS, dtype=str, chunksize=1_000_000, compression="gzip"):
+        chunk = chunk[chunk.hm_rsid.isin(keep)]
+        m = munge_input(chunk) if len(chunk) else None
+        if m is not None:
+            parts.append(m)
+    return pd.concat(parts, ignore_index=True) if parts else None
+
+
+def write_run(gcst: str, status: str, fields: dict, log: list[str]) -> None:
+    cols = ["n", "n_snps", "h2_obs", "h2_obs_se", "intercept", "ratio", "lambda_gc", "mean_chi2", "n_index_snps", "loci",
+            "concentration", "top10"]
+    values = [Json(fields.get(c)) if c == "top10" and fields.get(c) is not None else fields.get(c) for c in cols]
+    with llm.connect() as conn, conn.cursor() as cur:
+        cur.execute(f"""INSERT INTO preclin.ldsc_run (gcst, status, {', '.join(cols)}, tool, tool_version, ld_reference, log)
+                        VALUES (%s, %s, {', '.join(['%s'] * len(cols))}, 'ldsc', %s, %s, %s)
+                        ON CONFLICT (gcst) DO UPDATE SET status = EXCLUDED.status, {', '.join(f'{c} = EXCLUDED.{c}' for c in cols)},
+                            tool_version = EXCLUDED.tool_version, ld_reference = EXCLUDED.ld_reference,
+                            run_at = now(), log = EXCLUDED.log""",
+                    [gcst, status, *values, TOOLS["ldsc"] + "; plink " + TOOLS["plink"], LD_REFERENCE, "\n".join(log)[-20000:]])
+        conn.commit()
+
+
+def run(gcst: str) -> dict:
+    """Fetch, munge, h2, clump and concentration for one study; writes preclin.ldsc_run and returns the row."""
+    s = study(gcst)
+    n = s["cases"] + s["controls"]
+    work = os.path.join(WORK, gcst)
+    os.makedirs(work, exist_ok=True)
+    log, fields = [], {"n": n}
+    status = "fetch_failed"
+    try:
+        try:
+            raw = download(SUMSTATS_BASE + s["path"], os.path.join(work, "raw.h.tsv.gz"))
+        except Exception as e:  # noqa: BLE001
+            log.append(f"fetch: {e}")
+            return {"gcst": gcst, "status": status}
+        m = read_sumstats(raw, hapmap_ids())
+        os.remove(raw)
+        if m is None:
+            status = "no_effect"
+            return {"gcst": gcst, "status": status}
+        inp = os.path.join(work, "input.tsv")
+        m.to_csv(inp, sep="\t", index=False)
+        out = os.path.join(work, gcst)
+        status = "munge_failed"
+        if not _run(ldsc_cmd("munge_sumstats.py") + ["--sumstats", inp, "--N", str(n), "--merge-alleles",
+                                                     os.path.join(REF, "w_hm3.snplist"), "--signed-sumstats", "BETA,0",
+                                                     "--p", "P", "--snp", "SNP", "--a1", "A1", "--a2", "A2", "--out", out], log):
+            return {"gcst": gcst, "status": status}
+        status = "h2_failed"
+        ld = os.path.join(REF, "eur_w_ld_chr") + "/"
+        if not _run(ldsc_cmd("ldsc.py") + ["--h2", out + ".sumstats.gz", "--ref-ld-chr", ld, "--w-ld-chr", ld, "--out", out], log):
+            return {"gcst": gcst, "status": status}
+        h2 = parse_h2_log(open(out + ".log").read())
+        if h2["h2_obs"] is None:
+            return {"gcst": gcst, "status": status}
+        fields.update(h2)
+        status = "clump_failed"
+        ss = pd.read_csv(out + ".sumstats.gz", sep="\t", compression="gzip")
+        ss = ss[ss.Z.notna()]
+        ss.assign(P=2 * norm.sf(ss.Z.abs()))[["SNP", "P"]].to_csv(os.path.join(work, "clump.tsv"), sep="\t", index=False)
+        ok = _run([PLINK, "--bfile", PANEL, "--clump", os.path.join(work, "clump.tsv"), "--clump-p1", str(GWS), "--clump-p2",
+                   str(GWS), "--clump-r2", str(CLUMP_R2), "--clump-kb", str(CLUMP_KB), "--clump-snp-field", "SNP",
+                   "--clump-field", "P", "--out", out], log)
+        clumped = out + ".clumped"
+        if not ok and not ("No significant --clump results" in log[-1] or "no significant" in log[-1].lower()):
+            return {"gcst": gcst, "status": status}
+        index = parse_clumped(open(clumped).read()) if os.path.exists(clumped) else parse_clumped("")
+        z2 = ss.set_index("SNP").Z.pow(2)
+        share, top = concentration(z2.reindex(index.SNP).dropna(), n, h2["h2_obs"])
+        fields.update({"n_index_snps": int(len(index)), "loci": loci(index), "concentration": share, "top10": top})
+        status = "ok"
+        return {"gcst": gcst, "status": status, **fields}
+    finally:
+        write_run(gcst, status, fields, log)
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def pending(retry: bool, gcst_file: str | None) -> list[str]:
+    with llm.connect() as conn, conn.cursor() as cur:
+        if gcst_file:
+            wanted = [line.strip() for line in open(gcst_file) if line.strip()]
+        else:
+            cur.execute("SELECT DISTINCT gcst FROM preclin.disease_polygenicity WHERE gcst IS NOT NULL ORDER BY gcst")
+            wanted = [r[0] for r in cur.fetchall()]
+        cur.execute("SELECT gcst, status FROM preclin.ldsc_run")
+        done = dict(cur.fetchall())
+    return [g for g in wanted if g not in done or (retry and done[g] != "ok")]
+
+
+def run_cmd(args) -> None:
+    for gcst in args.gcst:
+        t = time.time()
+        r = run(gcst)
+        print(f"{gcst} {r['status']} h2_obs={r.get('h2_obs')} loci={r.get('loci')} concentration={r.get('concentration')} "
+              f"{time.time() - t:.0f}s", flush=True)
+
+
+def run_all(args) -> None:
+    todo = pending(args.retry, args.gcst_file)
+    print(f"{len(todo)} studies to run", flush=True)
+    counts: dict[str, int] = {}
+    for i, gcst in enumerate(todo, 1):
+        t = time.time()
+        try:
+            r = run(gcst)
+        except Exception as e:  # noqa: BLE001
+            r = {"status": f"error: {e}"}
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+        print(f"[{i}/{len(todo)}] {gcst} {r['status']} h2_obs={r.get('h2_obs')} loci={r.get('loci')} "
+              f"concentration={r.get('concentration')} {time.time() - t:.0f}s", flush=True)
+    print(json.dumps(counts))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("references").set_defaults(fn=references)
+    sub.add_parser("check").set_defaults(fn=check)
+    p = sub.add_parser("run")
+    p.add_argument("gcst", nargs="+")
+    p.set_defaults(fn=run_cmd)
+    p = sub.add_parser("run-all")
+    p.add_argument("--retry", action="store_true", help="rerun studies whose last run failed")
+    p.add_argument("--gcst-file", help="run these accessions (one per line) instead of the chosen studies")
+    p.set_defaults(fn=run_all)
+    args = parser.parse_args()
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()
