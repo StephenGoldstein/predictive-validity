@@ -615,7 +615,62 @@ def target_origin_tests_table() -> str:
                                              "Biomarker alone", "Tissue alone"]))
 
 
-TABLES = {"TRANSITIONS_TABLE": transitions_table, "SENSITIVITY_TABLE": sensitivity_table,
+POLYGENICITY_TESTS = {"P1": "P1: more \"target not causal\" stops per entry (Phase 2 and 3)",
+                      "P2": "P2: lower Phase 2 advance (S4)",
+                      "P3": "P3: smaller benefit of human genetic support (interaction on S4)"}
+POLYGENICITY_FAMILIES = {"gwas_size": "GWAS size (effective N as a covariate)", "continuous": "Score as log10, per unit",
+                         "concentration": "Heritability concentration tertiles (low against high)",
+                         "mendelian_form": "Mendelian form (none against a form), all unit diseases"}
+
+
+def _polygenicity_rows(t: pd.DataFrame, names: dict) -> list[list]:
+    cell = lambda r: "not estimable" if pd.isna(r.rr) else f"{r.rr:.2f} ({r.lo:.2f}–{r.hi:.2f})"  # noqa: E731
+    p = lambda v: "" if pd.isna(v) else f"{v:.3f}" if v >= 0.001 else f"{v:.1e}"  # noqa: E731
+    rows = []
+    for r in t.itertuples():
+        rows.append([names.get(r.test, r.test), cell(r), p(r.p_one_sided), p(r.p_holm), r.reading,
+                     "" if pd.isna(r.exposed_entries) else f"{int(r.exposed_events):,} of {int(r.exposed_entries):,}",
+                     "" if pd.isna(r.reference_entries) else f"{int(r.reference_events):,} of {int(r.reference_entries):,}"])
+    return rows
+
+
+def polygenicity_tests_table() -> str:
+    """The three registered polygenicity tests: ratio (95% CI), one-sided p, Holm p, reading, and each group's
+    events of entries (top tertile; bottom tertile)."""
+    t = pd.read_csv(os.path.join(OUT, "polygenicity", "tests.csv"))
+    cols = ["Test", "Ratio (95% CI)", "p (one-sided)", "p (Holm)", "Reading", "Top tertile: events of entries",
+            "Bottom tertile: events of entries"]
+    return table(pd.DataFrame(_polygenicity_rows(t, POLYGENICITY_TESTS), columns=cols))
+
+
+def polygenicity_sensitivities_table() -> str:
+    """The four registered sensitivities, each P1-P3 with Holm within itself."""
+    t = pd.read_csv(os.path.join(OUT, "polygenicity", "sensitivities.csv"))
+    rows = []
+    for family, g in t.groupby("family", sort=False):
+        for row in _polygenicity_rows(g, {"P1": "P1", "P2": "P2", "P3": "P3"}):
+            rows.append([POLYGENICITY_FAMILIES.get(family, family)] + row)
+    cols = ["Sensitivity", "Test", "Ratio (95% CI)", "p (one-sided)", "p (Holm)", "Reading", "Exposed: events of entries",
+            "Reference: events of entries"]
+    return table(pd.DataFrame(rows, columns=cols))
+
+
+def polygenicity_tertiles_table() -> str:
+    """Each tertile and the no-score group: diseases, entries, not-causal stops and Phase 2 advance."""
+    t = pd.read_csv(os.path.join(OUT, "polygenicity", "tertiles.csv"))
+    order = {"top": 0, "middle": 1, "bottom": 2, "none": 3}
+    names = {"top": "Top tertile (most polygenic)", "middle": "Middle tertile", "bottom": "Bottom tertile", "none": "No score"}
+    t = t.assign(o=t.tertile.map(order)).sort_values("o")
+    rows = [[names[r.tertile], f"{int(r.diseases):,}", f"{int(r.entries):,}", f"{int(r.not_causal):,} ({r.not_causal_rate:.0%})",
+             f"{int(r.s4):,} of {int(r.phase2_entries):,} ({r.s4_rate:.0%})", f"{int(r.without_target):,}"] for r in t.itertuples()]
+    return table(pd.DataFrame(rows, columns=["Group", "Diseases", "Phase 2 and 3 entries", "Not-causal stops (share)",
+                                             "Phase 2 advance (share)", "Entries without a resolved target"]))
+
+
+TABLES = {"TRANSITIONS_TABLE": transitions_table,
+          "POLYGENICITY_TESTS_TABLE": polygenicity_tests_table,
+          "POLYGENICITY_SENSITIVITIES_TABLE": polygenicity_sensitivities_table,
+          "POLYGENICITY_TERTILES_TABLE": polygenicity_tertiles_table, "SENSITIVITY_TABLE": sensitivity_table,
           "PERIOD_TABLE": period_table, "YEAR_TABLE": year_table, "RUNNING_TABLE": running_table,
           "FAILURE_DEFINITIONS_TABLE": failure_definitions_table, "EVIDENCE_DEFINITIONS_TABLE": evidence_definitions_table,
           "AREA_TABLE": lambda: stratum_table("loa_by_area.csv", "Disease area", bio.AREA_LOA),
@@ -663,7 +718,7 @@ TABS = [("REPORT.template.md", "REPORT.md"), ("APPENDIX.template.md", "REPORT_AP
 def main() -> None:
     numbers = dict(BIO)
     for section in ("section1", "section2", "section3", "evidence_analysis", "attribution", "stop_causes", "failure_modes",
-                    "target_origin", "quality"):
+                    "target_origin", "polygenicity", "quality"):
         numbers.update(flatten(json.load(open(os.path.join(OUT, section, "numbers.json"))), section + "."))
     with open(os.path.join(OUT, "numbers.json"), "w") as f:
         json.dump(numbers, f, indent=1, default=float, sort_keys=True)

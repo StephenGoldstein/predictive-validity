@@ -23,3 +23,16 @@ def test_unit_flags_a_disease_missing_from_the_profile():   # Review Focus 5
     u = unit(d, prof)
     assert list(u.mondo_id) == ["M1", "M2"] and list(u.entries) == [1, 1]
     assert list(u.ldsc_status) == ["ok", "not_profiled"] and list(u.scored) == [True, False]
+
+
+def test_tests_table_has_one_row_per_hypothesis(tmp_path, monkeypatch):
+    from report.render import polygenicity_tests_table
+    t = pd.DataFrame({"family": ["primary"] * 3, "test": ["P1", "P2", "P3"], "rr": [1.2, 0.8, 0.9], "lo": [1, .6, .5],
+                      "hi": [1.5, 1, 1.4], "p": [.04, .08, .6], "p_one_sided": [.02, .04, .3], "p_holm": [.06, .08, .3],
+                      "reading": ["same direction, not confirmed"] * 3, "exposed_entries": [100] * 3,
+                      "exposed_events": [20] * 3, "reference_entries": [100] * 3, "reference_events": [10] * 3})
+    (tmp_path / "polygenicity").mkdir()
+    t.to_csv(tmp_path / "polygenicity" / "tests.csv", index=False)
+    monkeypatch.setattr("report.render.OUT", str(tmp_path))
+    out = polygenicity_tests_table()
+    assert out.count("\n| P") == 3 and "1.20 (1.00–1.50)" in out
