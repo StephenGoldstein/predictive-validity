@@ -54,7 +54,10 @@ MHC = (6, 25_000_000, 34_000_000)
 GWS = 5e-8
 CLUMP_R2, CLUMP_KB = 0.1, 1000
 TOP = 10
-COLUMNS = ["hm_rsid", "hm_effect_allele", "hm_other_allele", "hm_beta", "hm_odds_ratio", "p_value"]
+# The harmonised files come in two layouts: the older one with hm_ columns, the GWAS-SSF one without the prefix
+COLUMNS = {"snp": ("hm_rsid", "rsid", "variant_id"), "a1": ("hm_effect_allele", "effect_allele"),
+           "a2": ("hm_other_allele", "other_allele"), "beta": ("hm_beta", "beta"), "odds": ("hm_odds_ratio", "odds_ratio"),
+           "p": ("p_value", "neg_log_10_p_value")}
 STATUSES = ("ok", "no_effect", "fetch_failed", "munge_failed", "h2_failed", "clump_failed")
 
 
@@ -104,13 +107,26 @@ def check(_args) -> None:
         print(cmd[0].split("/")[-1], (r.stdout or r.stderr).strip().splitlines()[0])
 
 
+def column_map(columns) -> dict[str, str | None]:
+    """Which of a harmonised file's columns serve as SNP, A1, A2, beta, odds ratio and p (None when absent)."""
+    cols = list(columns)
+    return {k: next((c for c in names if c in cols), None) for k, names in COLUMNS.items()}
+
+
 def munge_input(h: pd.DataFrame) -> pd.DataFrame | None:
-    """SNP, A1, A2, BETA, P from a harmonised frame: beta, else log odds ratio; None when no row has an effect."""
-    beta = pd.to_numeric(h["hm_beta"], errors="coerce")
-    odds = pd.to_numeric(h["hm_odds_ratio"], errors="coerce")
-    beta = beta.where(beta.notna(), np.log(odds.where(odds > 0)))
-    out = pd.DataFrame({"SNP": h["hm_rsid"], "A1": h["hm_effect_allele"], "A2": h["hm_other_allele"], "BETA": beta,
-                        "P": pd.to_numeric(h["p_value"], errors="coerce")})
+    """SNP, A1, A2, BETA, P from a harmonised frame (either layout): beta, else log odds ratio; None when no row
+    has an effect or the file has no SNP, allele or effect column."""
+    m = column_map(h.columns)
+    if not (m["snp"] and m["a1"] and m["a2"] and (m["beta"] or m["odds"])):
+        return None
+    beta = pd.to_numeric(h[m["beta"]], errors="coerce") if m["beta"] else pd.Series(np.nan, index=h.index)
+    if m["odds"]:
+        odds = pd.to_numeric(h[m["odds"]], errors="coerce")
+        beta = beta.where(beta.notna(), np.log(odds.where(odds > 0)))
+    p = pd.to_numeric(h[m["p"]], errors="coerce") if m["p"] else pd.Series(np.nan, index=h.index)
+    if m["p"] == "neg_log_10_p_value":
+        p = 10 ** -p
+    out = pd.DataFrame({"SNP": h[m["snp"]], "A1": h[m["a1"]], "A2": h[m["a2"]], "BETA": beta, "P": p})
     out = out[out.BETA.notna() & out.SNP.notna() & out.A1.notna() & out.A2.notna()].reset_index(drop=True)
     return out if len(out) else None
 
@@ -178,8 +194,13 @@ def hapmap_ids() -> set[str]:
 def read_sumstats(path: str, keep: set[str]) -> pd.DataFrame | None:
     """The munge input from a harmonised file, streamed in chunks and cut to the HapMap3 SNPs."""
     parts = []
-    for chunk in pd.read_csv(path, sep="\t", usecols=COLUMNS, dtype=str, chunksize=1_000_000, compression="gzip"):
-        chunk = chunk[chunk.hm_rsid.isin(keep)]
+    header = pd.read_csv(path, sep="\t", nrows=0, compression="gzip").columns
+    m = column_map(header)
+    use = [c for c in m.values() if c]
+    if not (m["snp"] and m["a1"] and m["a2"] and (m["beta"] or m["odds"])):
+        return None
+    for chunk in pd.read_csv(path, sep="\t", usecols=use, dtype=str, chunksize=1_000_000, compression="gzip"):
+        chunk = chunk[chunk[m["snp"]].isin(keep)]
         m = munge_input(chunk) if len(chunk) else None
         if m is not None:
             parts.append(m)

@@ -60,3 +60,16 @@ def test_concentration_is_top10_per_snp_h2_over_observed_h2():
     assert concentration(z2, 1000, 0.0) == (None, [])
     share12, top12 = concentration(pd.Series([11.0] * 12), 1000, 1.0)
     assert len(top12) == 10 and abs(share12 - 0.1) < 1e-9
+
+
+def test_munge_input_accepts_the_plain_harmonised_columns():
+    """Newer harmonised files (GWAS-SSF) have rsid, effect_allele, beta... without the hm_ prefix."""
+    h = pd.DataFrame({"rsid": ["rs1", "rs2"], "effect_allele": ["A", "C"], "other_allele": ["G", "T"],
+                      "beta": [0.1, np.nan], "odds_ratio": [np.nan, 2.0], "p_value": [1e-3, 1e-9]})
+    m = munge_input(h)
+    assert list(m.SNP) == ["rs1", "rs2"] and abs(m.BETA.iloc[1] - np.log(2.0)) < 1e-9
+
+
+def test_munge_input_without_an_effect_column_is_none():
+    h = pd.DataFrame({"rsid": ["rs1"], "effect_allele": ["A"], "other_allele": ["G"], "p_value": [1e-3]})
+    assert munge_input(h) is None
