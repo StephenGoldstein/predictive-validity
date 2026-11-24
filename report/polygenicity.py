@@ -211,7 +211,8 @@ def daly(prof: pd.DataFrame) -> dict:
 def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     d = build()
-    u = unit(d, profile())
+    prof = profile()
+    u = unit(d, prof)
     u.to_csv(os.path.join(OUT, "unit.csv"), index=False)
     membership(u, CUTPOINTS, CONC_CUTPOINTS).to_csv(os.path.join(OUT, "membership.csv"), index=False)
     check = pre_comment_check(d, u)
@@ -222,7 +223,7 @@ def main() -> None:
         print("CUTPOINTS not set: the tertiles are not fixed; no outcome is joined.")
         return
     from report.polygenicity_tests import run_tests  # noqa: PLC0415  (the second half, after the dated comment)
-    run_tests(d, u)
+    run_tests(d, u, extra={"daly": daly(prof)})
 
 
 if __name__ == "__main__":

@@ -63,3 +63,28 @@ def test_results_table_rows_and_columns():
     assert list(t.columns) == ["family", "test", "rr", "lo", "hi", "p", "p_one_sided", "p_holm", "reading",
                                "exposed_entries", "exposed_events", "reference_entries", "reference_events"]
     assert list(t.test) == ["P1", "P2", "P3"]
+
+
+def test_numbers_key_the_tertile_rates_and_cutpoints_and_carry_the_extras():
+    from report.polygenicity_tests import numbers
+    d = synthetic()
+    desc = {"by_tertile": [{"tertile": "bottom", "entries": 10}, {"tertile": "top", "entries": 12}], "no_score": {"diseases": 2}}
+    n = numbers(d, {"P1": {}}, {}, desc, cuts=(1.5, 2.5), conc_cuts=(0.1, 0.2), extra={"daly": {"flags": {"diseases": 3}}})
+    assert n["tertiles"]["top"]["entries"] == 12 and n["tertiles"]["bottom"]["entries"] == 10
+    assert n["cutpoints"]["score"] == {"lower": 1.5, "upper": 2.5} and n["cutpoints"]["concentration"]["upper"] == 0.2
+    assert n["daly"]["flags"]["diseases"] == 3 and n["cohort"]["entries"] == len(d)
+    assert n["cohort"]["scored_diseases"] == d.mondo_id.nunique()
+
+
+def test_descriptives_always_report_each_group_size(monkeypatch):
+    from report.polygenicity_tests import descriptives
+    monkeypatch.setattr("report.polygenicity_tests.engaged_modes", lambda: pd.DataFrame({"key": [], "not_causal_basis": []}))
+    d = synthetic().assign(k_source="panukb", not_causal_basis="history")
+    ids = sorted(d.mondo_id.unique())
+    u = pd.DataFrame({"mondo_id": ids, "label": ids, "scored": True, "entries": 10, "ldsc_status": "ok", "h2_z": 1.0,
+                      "h2_liab": 0.2, "loci": 5, "loci_catalog": None, "gwas_genes_per_10k_cases": None, "me_log10": None,
+                      "score": 25.0})
+    out = descriptives(d, u)
+    assert out["z_at_least_2"]["diseases"] == 0 and out["z_at_least_2"]["tests"] == {}
+    assert out["gbd_k_only"]["diseases"] == 0 and out["catalog_loci"]["diseases"] == 0
+    assert out["gwas_genes"]["diseases"] == 0 and out["oconnor"]["n"] == 0

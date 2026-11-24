@@ -180,33 +180,37 @@ def descriptives(d: pd.DataFrame, u: pd.DataFrame) -> dict:
     # inclusion at z >= 2
     z2 = u[u.h2_z.notna() & (u.h2_z >= 2) & u.h2_liab.notna() & (u.h2_liab > 0) & (u.h2_liab <= 1)
            & u.ldsc_status.isin(["ok", "low_z"])]
+    out["z_at_least_2"] = {"diseases": int(len(z2)), "tests": {}}
     if len(z2) >= 6:
         sc = (z2.loci / z2.h2_liab)
         dd = d.merge(z2[["mondo_id"]].assign(score_z2=sc.values), on="mondo_id", how="left")
         dd["tertile_z2"] = tertile(dd.score_z2, cutpoints(sc))
-        out["z_at_least_2"] = {"diseases": int(len(z2)), "tests": registered(dd, col="tertile_z2")}
+        out["z_at_least_2"]["tests"] = registered(dd, col="tertile_z2")
     # GBD-K diseases only
     gk = d[d.k_source.eq("gbd")]
-    out["gbd_k_only"] = {"diseases": int(gk.mondo_id.nunique()), "tests": registered(gk)} if gk.mondo_id.nunique() >= 6 else {}
+    out["gbd_k_only"] = {"diseases": int(gk.mondo_id.nunique()), "tests": registered(gk) if gk.mondo_id.nunique() >= 6 else {}}
     # the Catalog's all-study loci in place of the clumped loci
     cat = u[u.scored & u.loci_catalog.notna() & u.h2_liab.notna()]
+    out["catalog_loci"] = {"diseases": int(len(cat)), "tests": {}}
     if len(cat) >= 6:
         sc = cat.loci_catalog / cat.h2_liab
         dd = d.merge(cat[["mondo_id"]].assign(score_cat=sc.values), on="mondo_id", how="left")
         dd["tertile_cat"] = tertile(dd.score_cat, cutpoints(sc))
-        out["catalog_loci"] = {"diseases": int(len(cat)), "tests": registered(dd, col="tertile_cat")}
+        out["catalog_loci"]["tests"] = registered(dd, col="tertile_cat")
     # gene counts as the exposure
     gc = u[u.gwas_genes_per_10k_cases.notna()]
+    out["gwas_genes"] = {"diseases": int(len(gc)), "tests": {}}
     if len(gc) >= 6:
         dd = d.copy()
         dd["tertile_genes"] = tertile(dd.gwas_genes_per_10k_cases, cutpoints(gc.gwas_genes_per_10k_cases))
-        out["gwas_genes"] = {"diseases": int(len(gc)), "tests": registered(dd, col="tertile_genes")}
+        out["gwas_genes"]["tests"] = registered(dd, col="tertile_genes")
     # O'Connor
     me = u[u.me_log10.notna() & u.score.notna()]
+    out["oconnor"] = {"n": int(len(me)), "spearman": None, "p": None,
+                      "diseases": me[["mondo_id", "label", "score", "me_log10"]].to_dict("records")}
     if len(me) >= 3:
         rho, p = spearmanr(me.score, me.me_log10)
-        out["oconnor"] = {"n": int(len(me)), "spearman": float(rho), "p": float(p),
-                          "diseases": me[["mondo_id", "label", "score", "me_log10"]].to_dict("records")}
+        out["oconnor"].update({"spearman": float(rho), "p": float(p)})
     # the basis of P1's not-causal calls
     c = cohort(d, "mode_not_causal")
     nc = c[c.mode_not_causal > 0]
@@ -225,7 +229,24 @@ def results_table(families: dict) -> pd.DataFrame:
                                        "exposed_entries", "exposed_events", "reference_entries", "reference_events"])
 
 
-def run_tests(d: pd.DataFrame, u: pd.DataFrame) -> dict:
+def numbers(e: pd.DataFrame, primary: dict, sens: dict, desc: dict, cuts, conc_cuts, extra: dict | None = None,
+            build_id: str | None = None, comment_id: str | None = None) -> dict:
+    """numbers.json: the cohort, the cutpoints and the per-tertile rates keyed for the narrative, the tests, the
+    sensitivities, the descriptives, and any extra block (the DALY descriptive) under its own key."""
+    keyed = lambda c: {"lower": c[0], "upper": c[1]} if c is not None else None  # noqa: E731
+    n = {"cohort": {"entries": int(len(e)), "phase2": int(e.phase.eq(2).sum()),
+                    "with_target": int(e.has_target_disease.fillna(False).sum()),
+                    "scored_entries": int(e.scored.fillna(False).sum()), "diseases": int(e.mondo_id.nunique()),
+                    "scored_diseases": int(e.mondo_id[e.scored.fillna(False).astype(bool)].nunique())},
+         "cutpoints": {"score": keyed(cuts), "concentration": keyed(conc_cuts)}, "build_id": build_id,
+         "comment_id": comment_id, "covariates": {"P1": list(COVARS_23), "P2": list(COVARS), "P3": list(COVARS)},
+         "tertiles": {r["tertile"]: r for r in desc.get("by_tertile", [])},
+         "tests": primary, "sensitivities": sens, "descriptives": desc}
+    n.update(extra or {})
+    return n
+
+
+def run_tests(d: pd.DataFrame, u: pd.DataFrame, extra: dict | None = None) -> dict:
     from report import polygenicity as pg  # noqa: PLC0415
     e = frame_with_outcomes(d, u, pg.CUTPOINTS, pg.CONC_CUTPOINTS)
     primary = registered(e)
@@ -236,11 +257,7 @@ def run_tests(d: pd.DataFrame, u: pd.DataFrame) -> dict:
     rates(e, "tertile").to_csv(os.path.join(pg.OUT, "tertiles.csv"), index=False)
     pd.DataFrame(desc["area"]).to_csv(os.path.join(pg.OUT, "area.csv"), index=False)
     pd.DataFrame(desc["no_score"].get("status", [])).to_csv(os.path.join(pg.OUT, "no_score.csv"), index=False)
-    n = {"cohort": {"entries": int(len(e)), "phase2": int(e.phase.eq(2).sum()), "with_target": int(e.has_target_disease.fillna(False).sum()),
-                    "scored_entries": int(e.scored.fillna(False).sum()), "diseases": int(e.mondo_id.nunique())},
-         "cutpoints": {"score": pg.CUTPOINTS, "concentration": pg.CONC_CUTPOINTS}, "build_id": pg.BUILD_ID,
-         "comment_id": pg.COMMENT_ID, "covariates": {"P1": list(COVARS_23), "P2": list(COVARS), "P3": list(COVARS)},
-         "tests": primary, "sensitivities": sens, "descriptives": desc}
+    n = numbers(e, primary, sens, desc, pg.CUTPOINTS, pg.CONC_CUTPOINTS, extra, pg.BUILD_ID, pg.COMMENT_ID)
     with open(os.path.join(pg.OUT, "numbers.json"), "w") as f:
         json.dump(jsonable(n), f, indent=1)
     for k, t in primary.items():
