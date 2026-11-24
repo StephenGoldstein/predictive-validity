@@ -256,7 +256,8 @@ def run(gcst: str) -> dict:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def pending(retry: bool, gcst_file: str | None) -> list[str]:
+def pending(retry: bool, gcst_file: str | None, shard: str | None = None) -> list[str]:
+    """The studies still to run; shard "k/n" keeps every n-th of them starting at k (1-based) for parallel runs."""
     with llm.connect() as conn, conn.cursor() as cur:
         if gcst_file:
             wanted = [line.strip() for line in open(gcst_file) if line.strip()]
@@ -265,7 +266,11 @@ def pending(retry: bool, gcst_file: str | None) -> list[str]:
             wanted = [r[0] for r in cur.fetchall()]
         cur.execute("SELECT gcst, status FROM preclin.ldsc_run")
         done = dict(cur.fetchall())
-    return [g for g in wanted if g not in done or (retry and done[g] != "ok")]
+    todo = [g for g in wanted if g not in done or (retry and done[g] != "ok")]
+    if shard:
+        k, n = (int(x) for x in shard.split("/"))
+        todo = todo[k - 1::n]
+    return todo
 
 
 def run_cmd(args) -> None:
@@ -277,7 +282,7 @@ def run_cmd(args) -> None:
 
 
 def run_all(args) -> None:
-    todo = pending(args.retry, args.gcst_file)
+    todo = pending(args.retry, args.gcst_file, args.shard)
     print(f"{len(todo)} studies to run", flush=True)
     counts: dict[str, int] = {}
     for i, gcst in enumerate(todo, 1):
@@ -303,6 +308,7 @@ def main() -> None:
     p = sub.add_parser("run-all")
     p.add_argument("--retry", action="store_true", help="rerun studies whose last run failed")
     p.add_argument("--gcst-file", help="run these accessions (one per line) instead of the chosen studies")
+    p.add_argument("--shard", help="k/n: this worker's share of the studies (every n-th from the k-th)")
     p.set_defaults(fn=run_all)
     args = parser.parse_args()
     args.fn(args)

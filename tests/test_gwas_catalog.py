@@ -64,3 +64,11 @@ def test_study_frame_maps_every_uri_and_keeps_unmapped_as_empty():
 
 def test_a_bare_comma_before_cases_is_not_a_number():
     assert parse_sample_size("500 cases, 600 controls, cases and controls of European ancestry") == (500, 600)
+
+
+def test_platform_snps_reads_the_bracketed_count():
+    from pipeline.gwas_catalog import platform_snps
+    assert platform_snps("Illumina [~2,500,000] (imputed)") == 2_500_000
+    assert platform_snps("Affymetrix, Illumina [130,000]") == 130_000
+    assert platform_snps("Illumina [~ 10,500,000 (imputed)]; Affymetrix [550,000]") == 10_500_000
+    assert platform_snps("NR") is None and platform_snps(None) is None

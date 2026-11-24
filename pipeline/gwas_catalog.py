@@ -47,6 +47,7 @@ LOCUS_BP = 500_000
 MHC = ("6", 25_000_000, 34_000_000)
 CHROMOSOMES = {str(i) for i in range(1, 23)} | {"X"}
 
+PLATFORM = re.compile(r"\[[^\]]*?~?\s*(\d[\d,]*)")
 CASES = re.compile(r"(\d[\d,]*)\s+[^,\d]*?\bcases\b", re.I)
 CONTROLS = re.compile(r"(\d[\d,]*)\s+[^,\d]*?\bcontrols\b", re.I)
 
@@ -105,6 +106,14 @@ def parse_sample_size(text: str | None) -> tuple[int | None, int | None]:
     if cases is None:
         return None, None
     return cases, _count(CONTROLS, text)
+
+
+def platform_snps(text: str | None) -> int | None:
+    """The largest bracketed SNP count in the Catalog's platform text ("Illumina [~2,500,000] (imputed)")."""
+    if not isinstance(text, str):
+        return None
+    found = [int(m.replace(",", "")) for m in PLATFORM.findall(text)]
+    return max(found) if found else None
 
 
 def _ancestry_columns(ancestry: pd.DataFrame) -> pd.DataFrame:
@@ -196,7 +205,8 @@ def study_frame(studies: pd.DataFrame, ancestry: pd.DataFrame, lookup: TraitLook
                      "initial_sample": s["INITIAL SAMPLE SIZE"] if isinstance(s["INITIAL SAMPLE SIZE"], str) else None,
                      "cases": cases, "controls": controls, "eur_share": shares.get(s["STUDY ACCESSION"]),
                      "sumstats_path": _relative(harmonised.get(s["STUDY ACCESSION"])),
-                     "association_count": int(count) if not pd.isna(count) else None})
+                     "association_count": int(count) if not pd.isna(count) else None,
+                     "platform_snps": platform_snps(s.get("PLATFORM [SNPS PASSING QC]"))})
     return pd.DataFrame(rows, dtype=object)
 
 
@@ -246,7 +256,7 @@ def load(_args) -> None:
         cur.execute("DELETE FROM preclin.ldsc_run")
         cur.execute("DELETE FROM preclin.gwas_catalog_study")
         cols = ["gcst", "pubmed_id", "published", "trait", "mapped_trait_uris", "mondo_ids", "initial_sample", "cases",
-                "controls", "eur_share", "sumstats_path", "association_count"]
+                "controls", "eur_share", "sumstats_path", "association_count", "platform_snps"]
         rows = [tuple(r[c] for c in cols) + (rid,) for r in frame.to_dict("records")]
         execute_values(cur, f"INSERT INTO preclin.gwas_catalog_study ({', '.join(cols)}, source_release_id) VALUES %s",
                        rows, page_size=5000)
