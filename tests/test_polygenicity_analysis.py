@@ -36,3 +36,17 @@ def test_tests_table_has_one_row_per_hypothesis(tmp_path, monkeypatch):
     monkeypatch.setattr("report.render.OUT", str(tmp_path))
     out = polygenicity_tests_table()
     assert out.count("\n| P") == 3 and "1.20 (1.00–1.50)" in out
+
+
+def test_area_and_no_score_tables_read_their_csvs(tmp_path, monkeypatch):
+    from report.render import polygenicity_area_table, polygenicity_no_score_table
+    (tmp_path / "polygenicity").mkdir()
+    pd.DataFrame({"tertile": ["top", "top", "bottom"], "bio_area": ["a", "b", "a"], "entries": [5, 6, 7],
+                  "diseases": [1, 2, 3]}).to_csv(tmp_path / "polygenicity" / "area.csv", index=False)
+    pd.DataFrame({"ldsc_status": ["no_study", "low_z"], "diseases": [10, 2], "entries": [40, 9]}) \
+        .to_csv(tmp_path / "polygenicity" / "no_score.csv", index=False)
+    monkeypatch.setattr("report.render.OUT", str(tmp_path))
+    area = polygenicity_area_table()
+    assert "| a | 1 / 5 | 3 / 7 |" in area and "| b | 2 / 6 | 0 / 0 |" in area   # one row per area, a column per tertile
+    ns = polygenicity_no_score_table()
+    assert "| No GWAS study of the disease or a subtype | 10 | 40 |" in ns and ns.index("No GWAS") < ns.index("z = 4")

@@ -667,10 +667,40 @@ def polygenicity_tertiles_table() -> str:
                                              "Phase 2 advance (share)", "Entries without a resolved target"]))
 
 
+NO_SCORE_REASONS = {"no_study": "No GWAS study of the disease or a subtype", "no_sumstats": "No public harmonised summary statistics",
+                    "not_european": "No study of at least 90% European ancestry", "targeted_array": "Targeted genotyping array only",
+                    "no_case_control": "No case-control study", "run_failed": "LDSC run failed",
+                    "low_z": "Heritability estimate below z = 4", "no_k": "No population prevalence (GBD or Pan-UKB)",
+                    "out_of_bounds": "Liability-scale heritability outside (0, 1]"}
+
+
+def polygenicity_area_table() -> str:
+    """Diseases and entries of each disease area by tertile (the no-score group as a fourth column)."""
+    a = pd.read_csv(os.path.join(OUT, "polygenicity", "area.csv"))
+    levels = [lv for lv in ("top", "middle", "bottom", "none") if lv in set(a.tertile)]
+    names = {"top": "Top tertile", "middle": "Middle tertile", "bottom": "Bottom tertile", "none": "No score"}
+    piv = a.pivot_table(index="bio_area", columns="tertile", values=["diseases", "entries"], aggfunc="sum", fill_value=0)
+    rows = []
+    for area in sorted(piv.index, key=lambda x: -int(piv.loc[x, "entries"].sum())):
+        rows.append([str(area).replace("_", " ")] + [f"{int(piv.loc[area, ('diseases', lv)]):,} / {int(piv.loc[area, ('entries', lv)]):,}"
+                                                     if lv in piv.columns.get_level_values(1) else "0 / 0" for lv in levels])
+    return table(pd.DataFrame(rows, columns=["Disease area (diseases / entries)"] + [names[lv] for lv in levels]))
+
+
+def polygenicity_no_score_table() -> str:
+    """Why the no-score diseases have no score: diseases and Phase 2 entries per reason."""
+    t = pd.read_csv(os.path.join(OUT, "polygenicity", "no_score.csv"))
+    order = list(NO_SCORE_REASONS)
+    t = t.assign(o=t.ldsc_status.map(lambda x: order.index(x) if x in order else len(order))).sort_values("o")
+    rows = [[NO_SCORE_REASONS.get(r.ldsc_status, r.ldsc_status), f"{int(r.diseases):,}", f"{int(r.entries):,}"] for r in t.itertuples()]
+    return table(pd.DataFrame(rows, columns=["Reason", "Diseases", "Phase 2 entries"]))
+
+
 TABLES = {"TRANSITIONS_TABLE": transitions_table,
           "POLYGENICITY_TESTS_TABLE": polygenicity_tests_table,
           "POLYGENICITY_SENSITIVITIES_TABLE": polygenicity_sensitivities_table,
-          "POLYGENICITY_TERTILES_TABLE": polygenicity_tertiles_table, "SENSITIVITY_TABLE": sensitivity_table,
+          "POLYGENICITY_TERTILES_TABLE": polygenicity_tertiles_table, "POLYGENICITY_AREA_TABLE": polygenicity_area_table,
+          "POLYGENICITY_NO_SCORE_TABLE": polygenicity_no_score_table, "SENSITIVITY_TABLE": sensitivity_table,
           "PERIOD_TABLE": period_table, "YEAR_TABLE": year_table, "RUNNING_TABLE": running_table,
           "FAILURE_DEFINITIONS_TABLE": failure_definitions_table, "EVIDENCE_DEFINITIONS_TABLE": evidence_definitions_table,
           "AREA_TABLE": lambda: stratum_table("loa_by_area.csv", "Disease area", bio.AREA_LOA),
