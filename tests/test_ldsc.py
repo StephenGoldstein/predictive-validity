@@ -89,3 +89,35 @@ def test_read_sumstats_keeps_the_column_map_across_chunks(tmp_path, monkeypatch)
     monkeypatch.setattr(ldsc, "CHUNK", 3)   # a first chunk with no kept SNP
     out = ldsc.read_sumstats(str(path), {"rs5", "rs7"})
     assert sorted(out.SNP) == ["rs5", "rs7"]
+
+
+def test_munge_input_reads_an_OR_column_and_floors_tiny_p():   # GCST007228; p below 1e-308 became 0 and was dropped
+    h = pd.DataFrame({"rsid": ["rs1", "rs2"], "effect_allele": ["A", "C"], "other_allele": ["G", "T"],
+                      "OR": ["2.0", "0.5"], "p_value": ["1e-350", "0.5"]})
+    out = munge_input(h)
+    assert list(out.SNP) == ["rs1", "rs2"] and out.BETA.iloc[0] == np.log(2.0)
+    assert out.P.iloc[0] == 1e-300 and out.P.iloc[1] == 0.5
+
+
+def test_concentration_collapses_the_mhc_to_its_strongest_snp():
+    from pipeline.ldsc import MHC
+    index = pd.DataFrame({"SNP": ["a", "b", "c", "d"], "CHR": [MHC[0], MHC[0], MHC[0], 1], "BP": [26_000_000, 27_000_000, 30_000_000, 100]})
+    z2 = pd.Series({"a": 50.0, "b": 80.0, "c": 60.0, "d": 40.0})
+    share, top = concentration(z2, 1000, 0.1, index)
+    assert [r["snp"] for r in top] == ["b", "d"] and share == ((80 - 1) / 1000 + (40 - 1) / 1000) / 0.1
+
+
+def test_extra_loci_adds_significant_snps_the_panel_lacks_when_they_are_distant():
+    from pipeline.ldsc import extra_loci
+    index = pd.DataFrame({"SNP": ["i1"], "CHR": [1], "BP": [1_000_000], "P": [1e-10]})
+    missing = pd.DataFrame({"SNP": ["m1", "m2", "m3", "m4"], "CHR": [1, 1, 1, 2], "BP": [1_500_000, 3_000_000, 3_200_000, 100],
+                            "P": [1e-9, 1e-12, 1e-9, 1e-8 / 2]})
+    added = extra_loci(missing, index)
+    assert list(added.SNP) == ["m2", "m4"]   # m1 within 1 Mb of i1, m3 within 1 Mb of m2
+
+
+def test_trim_log_keeps_the_head_and_the_tail():
+    from pipeline.ldsc import trim_log
+    text = "H" * 100 + "M" * 100 + "T" * 100
+    out = trim_log(text, head=50, tail=50)
+    assert out.startswith("H" * 50) and out.endswith("T" * 50) and "..." in out and trim_log("short") == "short"

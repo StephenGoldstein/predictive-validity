@@ -47,3 +47,10 @@ def test_daly_share_sums_leaf_causes_with_a_flag():
     s = daly_share(who, m, flags)
     assert s["all"]["mendelian_form"] == 0.4 and s["all"]["drugged_large_effect"] == 0.2 and s["all"]["either"] == 0.6
     assert abs(s["ncd"]["either"] - 1.0) < 1e-9 and s["all"]["total"] == 100
+
+
+def test_drugged_sets_join_entered_and_approved_targets():
+    from report.polygenicity import drugged_sets
+    td = pd.DataFrame({"ensembl_id": ["E1", "E2"], "mondo_id": ["M1", "M1"]})
+    approved = pd.DataFrame({"ensembl_id": ["E3"], "mondo_id": ["M2"]})
+    assert drugged_sets(td, approved) == {"M1": {"E1", "E2"}, "M2": {"E3"}}

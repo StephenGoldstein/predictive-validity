@@ -46,7 +46,7 @@ from psycopg2.extras import execute_values
 from scipy.stats import norm, spearmanr
 
 from pipeline import llm
-from pipeline.gwas_catalog import RELEASE, loci_catalog, read_associations, trait_lookup
+from pipeline.gwas_catalog import RELEASE, loci_catalog, read_associations, read_studies, trait_lookup
 from report import frame, section3
 from report.disease_match import Mondo, mondo_tables
 from report.evidence_lines import us
@@ -98,16 +98,31 @@ def n_eff(cases, controls) -> float:
     return 4 / (1 / float(cases) + 1 / float(controls))
 
 
-def choose_study(studies: pd.DataFrame, mondo_id: str, members: set[str]) -> tuple[str | None, str | None, str]:
-    """(gcst, exact or descendant, status) for a disease; None and the reason when no study qualifies."""
+def exome_studies(catalog: pd.DataFrame) -> set[str]:
+    """Catalog studies whose genotyping technology is exome-wide (sequencing or array) without genome-wide sequencing:
+    their summary statistics hold exome variants only, which no platform count reveals."""
+    tech = catalog["GENOTYPING TECHNOLOGY"].fillna("").str.lower()
+    return set(catalog["STUDY ACCESSION"][tech.str.contains("exome") & ~tech.str.contains("genome-wide sequencing")])
+
+
+def excluded_studies() -> set[str]:
+    """Studies choose_study must skip: exome-wide by technology, or already run with too few merged SNPs."""
+    runs = frame.query(f"SELECT gcst FROM preclin.ldsc_run WHERE n_snps IS NOT NULL AND n_snps < {MIN_PLATFORM_SNPS}")
+    return exome_studies(read_studies()) | set(runs.gcst)
+
+
+def choose_study(studies: pd.DataFrame, mondo_id: str, members: set[str],
+                 exclude: set[str] = frozenset()) -> tuple[str | None, str | None, str]:
+    """(gcst, exact or descendant, status) for a disease; None and the reason when no study qualifies. Ties on
+    effective sample size break on the accession, so a rerun chooses the same study."""
     s = studies[studies.mondo_ids.map(lambda m: bool(set(m) & members))]
     if s.empty:
         return None, None, "no_study"
     filters = (("no_sumstats", lambda x: x.sumstats_path.notna()),
                ("no_case_control", lambda x: x.cases.notna() & x.controls.notna()),
                ("not_european", lambda x: x.eur_share.notna() & (pd.to_numeric(x.eur_share) >= EUR_MIN)),
-               ("targeted_array", lambda x: x.platform_snps.isna()
-                | (pd.to_numeric(x.platform_snps, errors="coerce") >= MIN_PLATFORM_SNPS)),
+               ("targeted_array", lambda x: (x.platform_snps.isna()
+                | (pd.to_numeric(x.platform_snps, errors="coerce") >= MIN_PLATFORM_SNPS)) & ~x.gcst.isin(exclude)),
                ("no_study", lambda x: x.mapped_trait_uris.map(len) == 1))
     for status, keep in filters:
         s = s[keep(s).fillna(False).astype(bool)]
@@ -115,7 +130,8 @@ def choose_study(studies: pd.DataFrame, mondo_id: str, members: set[str]) -> tup
             return None, None, status
     exact = s[s.mondo_ids.map(lambda m: mondo_id in m)]
     pool, level = (exact, "exact") if len(exact) else (s, "descendant")
-    best = pool.assign(n_eff=[n_eff(c, k) for c, k in zip(pool.cases, pool.controls)]).sort_values("n_eff", ascending=False)
+    best = pool.assign(n_eff=[n_eff(c, k) for c, k in zip(pool.cases, pool.controls)]) \
+               .sort_values(["n_eff", "gcst"], ascending=[False, True])
     return best.gcst.iloc[0], level, "ok"
 
 
@@ -136,9 +152,15 @@ def k_for(mondo_id: str, gbd_map: dict, gbd: dict, icd_codes: set[str], panukb: 
     rows = panukb[panukb.phenocode.isin(icd_codes)]
     if len(rows):
         r = rows.sort_values("n_cases_EUR", ascending=False).iloc[0]
-        if r.n_cases_EUR >= MIN_UKB_CASES:
-            return float(r.n_cases_EUR / (r.n_cases_EUR + r.n_controls_EUR)), "panukb"
+        k = float(r.n_cases_EUR / (r.n_cases_EUR + r.n_controls_EUR))
+        if r.n_cases_EUR >= MIN_UKB_CASES and 0 < k < K_MAX:
+            return k, "panukb"
     return None, "none"
+
+
+def failed_status(run_status: str | None) -> str:
+    """The profile status of a chosen study whose run gave no estimate: no_effect keeps its name."""
+    return "no_effect" if run_status == "no_effect" else "run_failed"
 
 
 def gene_counts(mondo_id: str, mondo, members: set[str], evidence: pd.DataFrame) -> tuple[int, int, bool]:
@@ -227,9 +249,10 @@ def choose(_args) -> None:
     studies = studies_frame()
     desc = descendants_table(mondo_tables()[0])
     rid = release_id("gwas_catalog")
+    exclude = excluded_studies()
     rows = []
     for c in cands.itertuples():
-        gcst, level, status = choose_study(studies, c.mondo_id, members(c.mondo_id, desc))
+        gcst, level, status = choose_study(studies, c.mondo_id, members(c.mondo_id, desc), exclude)
         rows.append((c.mondo_id, c.label, c.bio_area, int(c.entries), gcst, level, status, [rid]))
     with llm.connect() as conn, conn.cursor() as cur:
         execute_values(cur, """INSERT INTO preclin.disease_polygenicity
@@ -299,7 +322,7 @@ def build(_args) -> None:
             row.update({"n_cases": cases, "n_controls": controls, "n_eff": n_eff(cases, controls)})
             r = runs.loc[d.gcst] if d.gcst in runs.index else None
             if r is None or r.status != "ok":
-                row["ldsc_status"] = "run_failed"
+                row["ldsc_status"] = failed_status(None if r is None else r.status)
             else:
                 row.update({"h2_obs": float(r.h2_obs), "h2_obs_se": float(r.h2_obs_se), "intercept": r.intercept,
                             "loci": int(r.loci), "concentration": r.concentration})

@@ -88,3 +88,15 @@ def test_descriptives_always_report_each_group_size(monkeypatch):
     assert out["z_at_least_2"]["diseases"] == 0 and out["z_at_least_2"]["tests"] == {}
     assert out["gbd_k_only"]["diseases"] == 0 and out["catalog_loci"]["diseases"] == 0
     assert out["gwas_genes"]["diseases"] == 0 and out["oconnor"]["n"] == 0
+
+
+def test_continuous_sensitivity_is_estimable():   # it compared every entry with no one, so it never estimated
+    from report.polygenicity_tests import continuous
+    c = continuous(synthetic(3000))
+    assert "rr" in c["P1"] and "rr" in c["P2"] and c["P1"]["reading"] != "not estimable"
+
+
+def test_holm_keeps_the_registered_family_of_three():
+    from report.polygenicity_tests import holm_family
+    adj = holm_family({"P1": 0.01, "P2": 0.04, "P3": None})
+    assert adj["P1"] == 0.03 and adj["P2"] == 0.08 and "P3" not in adj

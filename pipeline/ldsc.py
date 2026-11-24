@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import tarfile
 import time
+import traceback
 from io import StringIO
 
 import numpy as np
@@ -45,7 +46,7 @@ WORK = os.path.join(REF, "work")
 VENV = os.path.join(REF, "venv311")
 PLINK = os.path.expanduser("~/miniforge3/envs/plink/bin/plink")
 CONDA = os.path.expanduser("~/miniforge3/bin/conda")
-TOOLS = {"ldsc": "2.0.1", "plink": "1.90b7.7"}
+TOOLS = {"ldsc": "2.0.1", "plink": "1.9.0-b.8"}   # what each binary reports
 LD_REFERENCE = "eur_w_ld_chr (Zenodo 8182036); 1000G_EUR_hm3 (Zenodo 6614170 cut to HapMap3 SNPs)"
 REFERENCES = {"eur_w_ld_chr.tar.gz": 8182036, "w_hm3.snplist.gz": 7773502, "1000G_EUR.bed": 6614170,
               "1000G_EUR.bim": 6614170, "1000G_EUR.fam": 6614170}
@@ -55,9 +56,11 @@ GWS = 5e-8
 CLUMP_R2, CLUMP_KB = 0.1, 1000
 TOP = 10
 CHUNK = 1_000_000   # rows per chunk when a harmonised file is streamed
+P_FLOOR = 1e-300    # p below the double range reads as 0 and munge would drop the SNP
+LOG_HEAD, LOG_TAIL = 5_000, 15_000
 # The harmonised files come in two layouts: the older one with hm_ columns, the GWAS-SSF one without the prefix
 COLUMNS = {"snp": ("hm_rsid", "rsid", "variant_id"), "a1": ("hm_effect_allele", "effect_allele"),
-           "a2": ("hm_other_allele", "other_allele"), "beta": ("hm_beta", "beta"), "odds": ("hm_odds_ratio", "odds_ratio"),
+           "a2": ("hm_other_allele", "other_allele"), "beta": ("hm_beta", "beta"), "odds": ("hm_odds_ratio", "odds_ratio", "OR", "or"),
            "p": ("p_value", "neg_log_10_p_value")}
 STATUSES = ("ok", "no_effect", "fetch_failed", "munge_failed", "h2_failed", "clump_failed")
 
@@ -127,6 +130,7 @@ def munge_input(h: pd.DataFrame) -> pd.DataFrame | None:
     p = pd.to_numeric(h[m["p"]], errors="coerce") if m["p"] else pd.Series(np.nan, index=h.index)
     if m["p"] == "neg_log_10_p_value":
         p = 10 ** -p
+    p = p.clip(lower=P_FLOOR)
     out = pd.DataFrame({"SNP": h[m["snp"]], "A1": h[m["a1"]], "A2": h[m["a2"]], "BETA": beta, "P": p})
     out = out[out.BETA.notna() & out.SNP.notna() & out.A1.notna() & out.A2.notna()].reset_index(drop=True)
     return out if len(out) else None
@@ -164,13 +168,60 @@ def loci(index: pd.DataFrame) -> int:
     return int((~mhc).sum() + (1 if mhc.any() else 0))
 
 
-def concentration(z2: pd.Series, n: int, h2_obs: float | None) -> tuple[float | None, list[dict]]:
-    """(share of h2_obs in the TOP largest z^2, those SNPs): per-SNP h2 = (z^2 - 1) / n."""
+def concentration(z2: pd.Series, n: int, h2_obs: float | None, index: pd.DataFrame | None = None) -> tuple[float | None, list[dict]]:
+    """(share of h2_obs in the TOP largest z^2, those SNPs): per-SNP h2 = (z^2 - 1) / n. With `index` (SNP, CHR, BP)
+    the extended MHC keeps only its strongest SNP, as it counts once among the loci."""
     if h2_obs is None or not np.isfinite(h2_obs) or h2_obs <= 0 or not len(z2):
         return None, []
+    if index is not None and len(index):
+        mhc = [x for x in index.SNP[(index.CHR == MHC[0]) & index.BP.between(MHC[1], MHC[2])] if x in z2.index]
+        if len(mhc) > 1:
+            keep = z2.loc[mhc].idxmax()
+            z2 = z2.drop([x for x in mhc if x != keep])
     top = z2.sort_values(ascending=False).head(TOP)
     rows = [{"snp": str(k), "z2": float(v), "h2": float((v - 1) / n)} for k, v in top.items()]
     return float(sum(r["h2"] for r in rows) / h2_obs), rows
+
+
+def extra_loci(missing: pd.DataFrame, index: pd.DataFrame) -> pd.DataFrame:
+    """Genome-wide significant SNPs the clumping panel lacks (SNP, CHR, BP, P), taken by p, each counted as a locus
+    when it lies more than CLUMP_KB from every index SNP and every SNP already added."""
+    taken = index[["CHR", "BP"]].astype(int).copy() if len(index) else pd.DataFrame(columns=["CHR", "BP"])
+    added = []
+    for r in missing.sort_values("P").itertuples():
+        near = taken[(taken.CHR == int(r.CHR)) & ((taken.BP - int(r.BP)).abs() <= CLUMP_KB * 1000)]
+        if near.empty:
+            added.append({"SNP": r.SNP, "CHR": int(r.CHR), "BP": int(r.BP), "P": float(r.P)})
+            taken = pd.concat([taken, pd.DataFrame([{"CHR": int(r.CHR), "BP": int(r.BP)}])], ignore_index=True)
+    return pd.DataFrame(added, columns=["SNP", "CHR", "BP", "P"])
+
+
+_POSITIONS: pd.DataFrame | None = None
+_PANEL: set[str] | None = None
+
+
+def positions() -> pd.DataFrame:
+    """CHR and BP of the LD-score reference SNPs (eur_w_ld_chr), indexed by SNP; read once."""
+    global _POSITIONS
+    if _POSITIONS is None:
+        parts = [pd.read_csv(os.path.join(REF, "eur_w_ld_chr", f"{c}.l2.ldscore.gz"), sep="\t", usecols=["CHR", "SNP", "BP"])
+                 for c in range(1, 23)]
+        _POSITIONS = pd.concat(parts, ignore_index=True).drop_duplicates("SNP").set_index("SNP")
+    return _POSITIONS
+
+
+def panel_ids() -> set[str]:
+    global _PANEL
+    if _PANEL is None:
+        _PANEL = set(pd.read_csv(PANEL + ".bim", sep="\t", header=None, usecols=[1])[1])
+    return _PANEL
+
+
+def trim_log(text: str, head: int = LOG_HEAD, tail: int = LOG_TAIL) -> str:
+    """The first `head` and last `tail` characters of a long log, so the munge summary survives pandas warnings."""
+    if len(text) <= head + tail:
+        return text
+    return text[:head] + f"\n... [{len(text) - head - tail:,} characters cut] ...\n" + text[-tail:]
 
 
 def study(gcst: str) -> dict:
@@ -218,7 +269,7 @@ def write_run(gcst: str, status: str, fields: dict, log: list[str]) -> None:
                         ON CONFLICT (gcst) DO UPDATE SET status = EXCLUDED.status, {', '.join(f'{c} = EXCLUDED.{c}' for c in cols)},
                             tool_version = EXCLUDED.tool_version, ld_reference = EXCLUDED.ld_reference,
                             run_at = now(), log = EXCLUDED.log""",
-                    [gcst, status, *values, TOOLS["ldsc"] + "; plink " + TOOLS["plink"], LD_REFERENCE, "\n".join(log)[-20000:]])
+                    [gcst, status, *values, TOOLS["ldsc"] + "; plink " + TOOLS["plink"], LD_REFERENCE, trim_log("\n".join(log))])
         conn.commit()
 
 
@@ -236,6 +287,7 @@ def run(gcst: str) -> dict:
         except Exception as e:  # noqa: BLE001
             log.append(f"fetch: {e}")
             return {"gcst": gcst, "status": status}
+        status = "munge_failed"   # from here every failure is in reading or munging the file
         m = read_sumstats(raw, hapmap_ids())
         os.remove(raw)
         if m is None:
@@ -259,8 +311,8 @@ def run(gcst: str) -> dict:
         fields.update(h2)
         status = "clump_failed"
         ss = pd.read_csv(out + ".sumstats.gz", sep="\t", compression="gzip")
-        ss = ss[ss.Z.notna()]
-        ss.assign(P=2 * norm.sf(ss.Z.abs()))[["SNP", "P"]].to_csv(os.path.join(work, "clump.tsv"), sep="\t", index=False)
+        ss = ss[ss.Z.notna()].assign(P=lambda x: 2 * norm.sf(x.Z.abs()))
+        ss[["SNP", "P"]].to_csv(os.path.join(work, "clump.tsv"), sep="\t", index=False)
         ok = _run([PLINK, "--bfile", PANEL, "--clump", os.path.join(work, "clump.tsv"), "--clump-p1", str(GWS), "--clump-p2",
                    str(GWS), "--clump-r2", str(CLUMP_R2), "--clump-kb", str(CLUMP_KB), "--clump-snp-field", "SNP",
                    "--clump-field", "P", "--out", out], log)
@@ -268,11 +320,21 @@ def run(gcst: str) -> dict:
         if not ok and not ("No significant --clump results" in log[-1] or "no significant" in log[-1].lower()):
             return {"gcst": gcst, "status": status}
         index = parse_clumped(open(clumped).read()) if os.path.exists(clumped) else parse_clumped("")
+        sig = ss[(ss.P < GWS) & ~ss.SNP.isin(panel_ids())]   # significant SNPs the panel cannot clump
+        pos = positions().reindex(sig.SNP)
+        placed = sig.assign(CHR=pos.CHR.values, BP=pos.BP.values).dropna(subset=["CHR", "BP"])
+        extra = extra_loci(placed[["SNP", "CHR", "BP", "P"]], index)
+        log.append(f"significant SNPs not in the clumping panel: {len(sig)}; without a reference position: "
+                   f"{len(sig) - len(placed)}; counted as loci: {len(extra)}")
+        index = pd.concat([index, extra], ignore_index=True)
         z2 = ss.set_index("SNP").Z.pow(2)
-        share, top = concentration(z2.reindex(index.SNP).dropna(), n, h2["h2_obs"])
+        share, top = concentration(z2.reindex(index.SNP).dropna(), n, h2["h2_obs"], index)
         fields.update({"n_index_snps": int(len(index)), "loci": loci(index), "concentration": share, "top10": top})
         status = "ok"
         return {"gcst": gcst, "status": status, **fields}
+    except Exception:  # noqa: BLE001  the stage reached is the status; the traceback is the log
+        log.append(traceback.format_exc())
+        return {"gcst": gcst, "status": status}
     finally:
         write_run(gcst, status, fields, log)
         shutil.rmtree(work, ignore_errors=True)

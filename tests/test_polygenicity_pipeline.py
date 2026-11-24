@@ -85,3 +85,23 @@ def test_score_fields_keep_h2_liab_for_low_z_and_score_only_when_ok():
     nok = score_fields(0.20, 0.02, 1_000_000, 10, 0.5, None)
     assert nok["ldsc_status"] == "no_k" and nok["h2_liab"] is None
     assert score_fields(0.90, 0.02, 1_000_000, 10, 0.5, 0.2)["ldsc_status"] == "out_of_bounds"
+
+
+def test_choose_study_skips_excluded_studies_and_breaks_ties_on_accession():
+    from pipeline.polygenicity import exome_studies
+    s = studies([("G1", ["M1"], ["u1"], "p", 1000, 1000, 1.0, 2_500_000), ("G2", ["M1"], ["u1"], "p", 5000, 5000, 1.0, 2_500_000),
+                 ("G0", ["M1"], ["u1"], "p", 5000, 5000, 1.0, 2_500_000)])
+    assert choose_study(s, "M1", {"M1"}) == ("G0", "exact", "ok")                      # G0 and G2 tie on n_eff: the accession decides
+    assert choose_study(s, "M1", {"M1"}, exclude={"G0", "G2"}) == ("G1", "exact", "ok")
+    assert choose_study(s, "M1", {"M1"}, exclude={"G0", "G1", "G2"}) == (None, None, "targeted_array")
+    cat = pd.DataFrame({"STUDY ACCESSION": ["G1", "G2", "G3", "G4"],
+                        "GENOTYPING TECHNOLOGY": ["Genome-wide genotyping array", "Genome-wide genotyping array, Exome-wide sequencing",
+                                                  "Genome-wide sequencing, Exome-wide sequencing", "Exome genotyping array"]})
+    assert exome_studies(cat) == {"G2", "G4"}
+
+
+def test_panukb_k_is_bounded_and_failed_runs_keep_their_reason():
+    from pipeline.polygenicity import failed_status
+    ukb = pd.DataFrame({"phenocode": ["X1"], "n_cases_EUR": [600], "n_controls_EUR": [400]})
+    assert k_for("M1", {}, {}, {"X1"}, ukb) == (None, "none")
+    assert failed_status("no_effect") == "no_effect" and failed_status("fetch_failed") == "run_failed" and failed_status(None) == "run_failed"

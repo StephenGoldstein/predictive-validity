@@ -21,7 +21,7 @@ from pipeline.stops import keys
 from report.engaged_modes import engaged_modes
 from report.evidence_analysis import COVARS_23, traced_stops
 from report.failure_modes import with_modes
-from report.section3 import COVARS, MIN_TARGETS, coef, describe, estimable, estimate, holm, jsonable, poisson
+from report.section3 import COVARS, MIN_TARGETS, coef, estimate, jsonable, poisson
 
 SIDES = {"P1": 1, "P2": -1, "P3": -1}
 OUTCOMES = {"P1": "mode_not_causal", "P2": "s4", "P3": "s4"}
@@ -67,6 +67,17 @@ def one_sided(t: dict, side: int) -> dict:
     return {**t, "p_one_sided": t["p"] / 2 if on_side else 1 - t["p"] / 2}
 
 
+def holm_family(p: dict[str, float | None], m: int = 3) -> dict[str, float]:
+    """Holm over the registered family of `m` tests: a test that is not estimable keeps its place in the family
+    (its p is unknown, not absent), so the others are corrected as if it were there."""
+    order = sorted((v, k) for k, v in p.items() if v is not None and np.isfinite(v))
+    adj, running = {}, 0.0
+    for i, (v, k) in enumerate(order):
+        running = max(running, min(1.0, v * (m - i)))
+        adj[k] = running
+    return adj
+
+
 def group_counts(c: pd.DataFrame, outcome: str) -> dict:
     return {"exposed_entries": int((c.top > 0).sum()), "exposed_events": int(c.loc[c.top > 0, outcome].sum()),
             "reference_entries": int((c.top <= 0).sum()), "reference_events": int(c.loc[c.top <= 0, outcome].sum())}
@@ -106,7 +117,7 @@ def registered(d: pd.DataFrame, extra: tuple[str, ...] = (), col: str = "tertile
              "P3": p3(d, extra=extra, levels=levels, col=col)}
     for k, t in tests.items():
         tests[k] = one_sided(t, SIDES[k])
-    adj = holm({k: t.get("p_one_sided") for k, t in tests.items()})
+    adj = holm_family({k: t.get("p_one_sided") for k, t in tests.items()})
     for k, t in tests.items():
         if "rr" in t:
             t["p_holm"] = adj[k]
@@ -125,15 +136,17 @@ def continuous(d: pd.DataFrame, covars_by_test=None) -> dict:
         covars = COVARS_23 if k == "P1" else COVARS
         lo, hi = PHASES[outcome]
         c = s[s.has_target_disease.fillna(False).astype(bool) & s.phase.between(lo, hi)].copy()
-        desc = describe(c.assign(any=1.0), outcome, "any")
+        ok = c.target.nunique() >= MIN_TARGETS and c[outcome].sum() >= 1 and c.log10_score.nunique() > 1
         if k == "P3":
             c = c.assign(log10_score_x_genetics=c.log10_score * c.genetics)
+            ok = ok and c.genetics.nunique() > 1
             t = coef(poisson(c, outcome, ["log10_score", "genetics", "log10_score_x_genetics"], covars, cluster=CLUSTER),
-                     "log10_score_x_genetics") if estimable(desc) else {}
+                     "log10_score_x_genetics") if ok else {}
         else:
-            t = coef(poisson(c, outcome, ["log10_score"], covars, cluster=CLUSTER), "log10_score") if estimable(desc) else {}
-        tests[k] = {**one_sided(t, SIDES[k]), "n": int(len(c)), "n_targets": int(c.target.nunique()), "per": "log10 unit"}
-    adj = holm({k: t.get("p_one_sided") for k, t in tests.items()})
+            t = coef(poisson(c, outcome, ["log10_score"], covars, cluster=CLUSTER), "log10_score") if ok else {}
+        tests[k] = {**one_sided(t, SIDES[k]), "n": int(len(c)), "n_targets": int(c.target.nunique()), "per": "log10 unit",
+                    "events": int(c[outcome].sum())}
+    adj = holm_family({k: t.get("p_one_sided") for k, t in tests.items()})
     for k, t in tests.items():
         if "rr" in t:
             t["p_holm"] = adj[k]

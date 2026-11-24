@@ -170,23 +170,35 @@ def daly_share(who: pd.DataFrame, m: pd.DataFrame, flags: pd.DataFrame) -> dict:
     return out
 
 
-def drugged_large_effect(prof: pd.DataFrame) -> pd.DataFrame:
+def drugged_sets(td: pd.DataFrame, approved: pd.DataFrame) -> dict[str, set[str]]:
+    """Per disease, the genes that are a primary target of a programme that entered Phase 2 or 3 there (the
+    target-disease pairs) or of a programme approved for it; both frames carry ensembl_id and mondo_id."""
+    drugged = td.groupby("mondo_id").ensembl_id.apply(set).to_dict()
+    for r in approved.itertuples():
+        drugged.setdefault(r.mondo_id, set()).add(r.ensembl_id)
+    return drugged
+
+
+def approved_targets() -> pd.DataFrame:
+    """Primary human targets of programmes judged approved for their disease (the FDA approval judgement the
+    phase cohorts use), as ensembl_id and mondo_id."""
+    return frame.query("""SELECT DISTINCT t.ensembl_id, p.mondo_id
+                          FROM preclin.dev_program p JOIN preclin.dev_program_approval ap USING (program_id)
+                          JOIN preclin.moiety_target mt USING (moiety_id) JOIN public.targets t ON t.id = mt.target_id
+                          WHERE ap.approved AND mt.is_primary AND p.mondo_id IS NOT NULL AND t.ensembl_id IS NOT NULL""")
+
+
+def drugged_large_effect(prof: pd.DataFrame, drugged: dict[str, set[str]] | None = None) -> pd.DataFrame:
     """Per profiled disease: whether a gene with rare or Mendelian evidence for it (the same match as the profile's
     mendelian genes) is a primary target of a programme in the disease that entered Phase 2 or 3, or was approved on
     that target for the disease."""
-    from pipeline.polygenicity import MENDELIAN_SOURCES, descendants_table, evidence_frame, members  # noqa: PLC0415
+    from pipeline.polygenicity import descendants_table, evidence_frame, members  # noqa: PLC0415
     from report.disease_match import Mondo, mondo_tables  # noqa: PLC0415
     from report.section3 import FAMILY  # noqa: PLC0415
     ev = evidence_frame()
     ev = ev[ev.datasource.map(FAMILY).isin(["burden", "mendelian"])]
-    td = frame.query("SELECT ensembl_id, mondo_id FROM preclin.target_disease")
-    approved = frame.query("""SELECT DISTINCT t.ensembl_id, p.mondo_id FROM preclin.dev_program p
-                              JOIN preclin.moiety_target t USING (moiety_id) WHERE p.mondo_id IS NOT NULL
-                              AND EXISTS (SELECT 1 FROM preclin.program_approval a WHERE a.program_id = p.program_id)""") \
-        if frame.query("SELECT to_regclass('preclin.program_approval') IS NOT NULL AS ok").ok.iloc[0] else td.iloc[0:0]
-    drugged = td.groupby("mondo_id").ensembl_id.apply(set).to_dict()
-    for r in approved.itertuples():
-        drugged.setdefault(r.mondo_id, set()).add(r.ensembl_id)
+    if drugged is None:
+        drugged = drugged_sets(frame.query("SELECT ensembl_id, mondo_id FROM preclin.target_disease"), approved_targets())
     desc, mondo = descendants_table(mondo_tables()[0]), Mondo()
     rows = []
     for mondo_id in prof.mondo_id:
