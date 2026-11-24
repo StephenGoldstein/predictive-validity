@@ -54,6 +54,7 @@ MHC = (6, 25_000_000, 34_000_000)
 GWS = 5e-8
 CLUMP_R2, CLUMP_KB = 0.1, 1000
 TOP = 10
+CHUNK = 1_000_000   # rows per chunk when a harmonised file is streamed
 # The harmonised files come in two layouts: the older one with hm_ columns, the GWAS-SSF one without the prefix
 COLUMNS = {"snp": ("hm_rsid", "rsid", "variant_id"), "a1": ("hm_effect_allele", "effect_allele"),
            "a2": ("hm_other_allele", "other_allele"), "beta": ("hm_beta", "beta"), "odds": ("hm_odds_ratio", "odds_ratio"),
@@ -199,11 +200,11 @@ def read_sumstats(path: str, keep: set[str]) -> pd.DataFrame | None:
     use = [c for c in m.values() if c]
     if not (m["snp"] and m["a1"] and m["a2"] and (m["beta"] or m["odds"])):
         return None
-    for chunk in pd.read_csv(path, sep="\t", usecols=use, dtype=str, chunksize=1_000_000, compression="gzip"):
+    for chunk in pd.read_csv(path, sep="\t", usecols=use, dtype=str, chunksize=CHUNK, compression="gzip"):
         chunk = chunk[chunk[m["snp"]].isin(keep)]
-        m = munge_input(chunk) if len(chunk) else None
-        if m is not None:
-            parts.append(m)
+        part = munge_input(chunk) if len(chunk) else None
+        if part is not None:
+            parts.append(part)
     return pd.concat(parts, ignore_index=True) if parts else None
 
 

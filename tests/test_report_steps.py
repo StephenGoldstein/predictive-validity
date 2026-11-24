@@ -9,12 +9,12 @@ def names(steps):
 
 def test_no_step_named_runs_the_whole_build():
     assert names(selected([]))[0] == "quality" and names(selected([]))[-1] == "render"
-    assert len(selected([])) == 12
+    assert len(selected([])) == 13
 
 
 def test_a_named_analysis_reruns_the_steps_that_use_it_in_build_order():
-    assert names(selected(["evidence_analysis"])) == ["evidence_analysis", "failure_modes", "target_origin", "figures",
-                                                          "render"]
+    assert names(selected(["evidence_analysis"])) == ["evidence_analysis", "failure_modes", "target_origin",
+                                                          "polygenicity", "figures", "render"]
 
 
 def test_a_figure_change_redraws_only_the_figures_and_a_render_change_redraws_them_too():
@@ -24,8 +24,8 @@ def test_a_figure_change_redraws_only_the_figures_and_a_render_change_redraws_th
 
 def test_an_early_step_reruns_everything_downstream():
     assert names(selected(["section1"])) == ["section1", "section2", "section3", "evidence_analysis", "attribution",
-                                             "stop_causes", "failure_modes", "target_origin", "methods", "figures",
-                                             "render"]
+                                             "stop_causes", "failure_modes", "target_origin", "polygenicity", "methods",
+                                             "figures", "render"]
 
 
 def test_the_target_origin_step_redraws_its_figures_and_rewrites_the_text():

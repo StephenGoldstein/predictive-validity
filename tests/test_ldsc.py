@@ -73,3 +73,19 @@ def test_munge_input_accepts_the_plain_harmonised_columns():
 def test_munge_input_without_an_effect_column_is_none():
     h = pd.DataFrame({"rsid": ["rs1"], "effect_allele": ["A"], "other_allele": ["G"], "p_value": [1e-3]})
     assert munge_input(h) is None
+
+
+def test_read_sumstats_keeps_the_column_map_across_chunks(tmp_path, monkeypatch):   # the second chunk reused m
+    import gzip
+    from pipeline import ldsc
+    rows = ["hm_rsid\thm_effect_allele\thm_other_allele\thm_beta\tp_value"]
+    rows += [f"rs{i}\tA\tG\t0.0{i}\t0.{i}" for i in range(1, 8)]
+    path = tmp_path / "x.h.tsv.gz"
+    with gzip.open(path, "wt") as f:
+        f.write("\n".join(rows) + "\n")
+    monkeypatch.setattr(ldsc, "CHUNK", 2)
+    out = ldsc.read_sumstats(str(path), {"rs1", "rs3", "rs6", "rs7"})
+    assert sorted(out.SNP) == ["rs1", "rs3", "rs6", "rs7"]
+    monkeypatch.setattr(ldsc, "CHUNK", 3)   # a first chunk with no kept SNP
+    out = ldsc.read_sumstats(str(path), {"rs5", "rs7"})
+    assert sorted(out.SNP) == ["rs5", "rs7"]

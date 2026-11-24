@@ -70,3 +70,18 @@ def test_gene_counts_use_members_and_lin_neighbours_and_family():
                        "datasource": ["gwas_credible_sets", "gwas_credible_sets", "orphanet", "clingen", "gene_burden"]})
     gwas, mend, form = gene_counts("M1", StubMondo({("M8", "M1")}), {"M1", "M2"}, ev)
     assert (gwas, mend, form) == (2, 2, True)      # g3 via Lin neighbour M8; M9 unrelated
+
+
+def test_score_fields_keep_h2_liab_for_low_z_and_score_only_when_ok():
+    from pipeline.polygenicity import score_fields
+    low = score_fields(h2_obs=0.10, h2_obs_se=0.05, n_snps=1_000_000, loci=3, p=0.5, k=0.01)
+    assert low["ldsc_status"] == "low_z" and low["h2_liab"] is not None and low["score"] is None
+    ok = score_fields(h2_obs=0.20, h2_obs_se=0.02, n_snps=1_000_000, loci=10, p=0.5, k=0.01)
+    assert ok["ldsc_status"] == "ok" and ok["score"] == pytest.approx(10 / ok["h2_liab"])
+    assert ok["log10_score"] == pytest.approx(np.log10(ok["score"]))
+    none = score_fields(h2_obs=0.20, h2_obs_se=0.02, n_snps=1_000_000, loci=0, p=0.5, k=0.01)
+    assert none["ldsc_status"] == "ok" and none["score"] == 0 and none["log10_score"] is None
+    assert score_fields(0.20, 0.02, 50_000, 10, 0.5, 0.01)["ldsc_status"] == "targeted_array"
+    nok = score_fields(0.20, 0.02, 1_000_000, 10, 0.5, None)
+    assert nok["ldsc_status"] == "no_k" and nok["h2_liab"] is None
+    assert score_fields(0.90, 0.02, 1_000_000, 10, 0.5, 0.2)["ldsc_status"] == "out_of_bounds"

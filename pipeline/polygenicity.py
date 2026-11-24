@@ -243,6 +243,27 @@ def choose(_args) -> None:
           ", ".join(f"{k} {v}" for k, v in chosen.items()))
 
 
+def score_fields(h2_obs: float, h2_obs_se: float, n_snps, loci: int, p: float, k: float | None) -> dict:
+    """Status, liability-scale h2 and score of one LDSC run (p = case fraction of the study, k = population prevalence).
+    h2_liab is kept for every run with a K, whatever the status, so the z >= 2 descriptive can use low_z diseases."""
+    z = h2_obs / h2_obs_se if h2_obs_se and h2_obs_se > 0 else None
+    h2l = liability_h2(h2_obs, p, k) if k is not None else None
+    out = {"h2_z": z, "h2_liab": h2l, "score": None, "log10_score": None}
+    if n_snps is None or not n_snps >= MIN_PLATFORM_SNPS:
+        out["ldsc_status"] = "targeted_array"
+    elif z is None or z < Z_MIN:
+        out["ldsc_status"] = "low_z"
+    elif k is None:
+        out["ldsc_status"] = "no_k"
+    elif not 0 < h2l <= 1:
+        out["ldsc_status"] = "out_of_bounds"
+    else:
+        out["ldsc_status"] = "ok"
+        out["score"] = loci / h2l
+        out["log10_score"] = float(np.log10(out["score"])) if loci > 0 else None
+    return out
+
+
 def build(_args) -> None:
     prof = frame.query("SELECT mondo_id, label, bio_area, entries, gcst, trait_level, ldsc_status FROM preclin.disease_polygenicity")
     runs = frame.query("SELECT gcst, status, n, n_snps, h2_obs, h2_obs_se, intercept, loci, concentration FROM preclin.ldsc_run")
@@ -280,24 +301,9 @@ def build(_args) -> None:
             if r is None or r.status != "ok":
                 row["ldsc_status"] = "run_failed"
             else:
-                z = float(r.h2_obs / r.h2_obs_se) if r.h2_obs_se and r.h2_obs_se > 0 else None
-                row.update({"h2_obs": float(r.h2_obs), "h2_obs_se": float(r.h2_obs_se), "intercept": r.intercept, "h2_z": z,
+                row.update({"h2_obs": float(r.h2_obs), "h2_obs_se": float(r.h2_obs_se), "intercept": r.intercept,
                             "loci": int(r.loci), "concentration": r.concentration})
-                if r.n_snps is None or r.n_snps < MIN_PLATFORM_SNPS:
-                    row["ldsc_status"] = "targeted_array"
-                elif z is None or z < Z_MIN:
-                    row["ldsc_status"] = "low_z"
-                elif k is None:
-                    row["ldsc_status"] = "no_k"
-                else:
-                    h2l = liability_h2(float(r.h2_obs), cases / (cases + controls), k)
-                    row["h2_liab"] = h2l
-                    if not 0 < h2l <= 1:
-                        row["ldsc_status"] = "out_of_bounds"
-                    else:
-                        row["ldsc_status"] = "ok"
-                        row["score"] = int(r.loci) / h2l
-                        row["log10_score"] = float(np.log10(row["score"])) if r.loci > 0 else None
+                row.update(score_fields(float(r.h2_obs), float(r.h2_obs_se), r.n_snps, int(r.loci), cases / (cases + controls), k))
         if cases is None:
             own = studies[studies.mondo_ids.map(lambda m: bool(set(m) & mem))].cases.dropna()
             cases = int(own.max()) if len(own) else None
