@@ -57,7 +57,7 @@ CONTROLS = re.compile(r"(\d[\d,]*)\s+[^,\d]*?\bcontrols\b", re.I)
 def download(url: str, dest: str, attempts: int = 6, streams: int = 1) -> str:
     """Stream url to dest through dest.part, resuming a partial file, with attempts tries; returns dest. With
     streams > 1 and a server that accepts byte ranges, the file arrives as that many concurrent segments
-    (dest.part0, dest.part1, ...), each resumable, joined in order; a legacy dest.part finishes on one stream."""
+    (dest.part.<start>-<end>), each resumable, joined in order; a legacy dest.part finishes on one stream."""
     if os.path.exists(dest):
         return dest
     os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -68,13 +68,14 @@ def download(url: str, dest: str, attempts: int = 6, streams: int = 1) -> str:
     else:
         size = -(-total // streams)
         bounds = [(i * size, min((i + 1) * size, total)) for i in range(streams) if i * size < total]
+        names = [f"{part}.{a}-{b}" for a, b in bounds]   # named by byte range: another split never resumes these
         with ThreadPoolExecutor(len(bounds)) as pool:
-            list(pool.map(lambda ib: _fetch(url, f"{part}{ib[0]}", ib[1][0], ib[1][1], attempts), enumerate(bounds)))
+            list(pool.map(lambda i: _fetch(url, names[i], bounds[i][0], bounds[i][1], attempts), range(len(bounds))))
         with open(part, "wb") as out:
-            for i in range(len(bounds)):
-                with open(f"{part}{i}", "rb") as f:
+            for name in names:
+                with open(name, "rb") as f:
                     shutil.copyfileobj(f, out)
-                os.remove(f"{part}{i}")
+                os.remove(name)
     os.replace(part, dest)
     return dest
 
@@ -95,6 +96,8 @@ def _fetch(url: str, part: str, start: int, end: int | None, attempts: int) -> N
     for attempt in range(1, attempts + 1):
         try:
             have = os.path.getsize(part) if os.path.exists(part) else 0
+            if end is not None and have > end - start:   # left by a run with other segment bounds
+                have = 0
             if end is not None and start + have >= end:
                 return
             headers = {"Range": f"bytes={start + have}-{'' if end is None else end - 1}"} if have or end is not None else {}
@@ -112,8 +115,8 @@ def _fetch(url: str, part: str, start: int, end: int | None, attempts: int) -> N
         except (requests.RequestException, OSError) as e:
             if attempt == attempts:
                 raise
-            time.sleep(15 * attempt)
-            print(f"retry {attempt} for {url}: {e}")
+            time.sleep(min(15 * attempt, 60))
+            print(f"retry {attempt} for {url}: {str(e)[:160]}")
 
 
 def fetch(_args) -> None:

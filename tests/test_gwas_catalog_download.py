@@ -8,7 +8,7 @@ from pipeline.gwas_catalog import download
 DATA = bytes(range(256)) * 4096   # 1 MiB
 
 
-def serve(ranges=True, honour_get=True):
+def serve(ranges=True, honour_get=True, refuse_first=0):
     """A range-capable file server on a free port; (server, url, [(method, Range header)...])."""
     seen = []
 
@@ -38,6 +38,9 @@ def serve(ranges=True, honour_get=True):
 
         def do_GET(self):
             start, end, partial = self._bounds()
+            if sum(m == "GET" for m, _ in seen) <= refuse_first:
+                self.send_error(503)
+                return
             self._head(start, end, partial)
             self.wfile.write(DATA[start:end])
 
@@ -61,7 +64,7 @@ def test_segmented_download_resumes_a_segment(tmp_path):
     srv, url, seen = serve()
     dest = str(tmp_path / "f.gz")
     n = len(DATA) // 4
-    with open(dest + ".part1", "wb") as f:
+    with open(f"{dest}.part.{n}-{2 * n}", "wb") as f:
         f.write(DATA[n:n + 1000])
     download(url, dest, streams=4)
     assert open(dest, "rb").read() == DATA
@@ -97,4 +100,27 @@ def test_segment_whose_range_is_ignored_raises(tmp_path):
     with pytest.raises(requests.HTTPError):
         download(url, dest, attempts=1, streams=4)
     assert not os.path.exists(dest)
+    srv.shutdown()
+
+
+def test_segment_refused_at_first_is_retried(tmp_path, monkeypatch):
+    import pipeline.gwas_catalog as gc
+    monkeypatch.setattr(gc.time, "sleep", lambda s: None)
+    srv, url, seen = serve(refuse_first=3)
+    dest = str(tmp_path / "f.gz")
+    download(url, dest, attempts=4, streams=4)
+    assert open(dest, "rb").read() == DATA
+    assert [m for m, _ in seen].count("GET") == 7
+    srv.shutdown()
+
+
+def test_oversized_segment_file_is_refetched(tmp_path):
+    srv, url, seen = serve()
+    dest = str(tmp_path / "f.gz")
+    n = len(DATA) // 4
+    with open(f"{dest}.part.{n}-{2 * n}", "wb") as f:     # corrupt leftover, longer than its range
+        f.write(DATA[:n + 5000])
+    download(url, dest, streams=4)
+    assert open(dest, "rb").read() == DATA
+    assert ("GET", f"bytes={n}-{2 * n - 1}") in seen
     srv.shutdown()
