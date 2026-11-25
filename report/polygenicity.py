@@ -269,7 +269,10 @@ def main() -> None:
         print("CUTPOINTS not set: the tertiles are not fixed; no outcome is joined.")
         return
     from report.polygenicity_tests import run_tests  # noqa: PLC0415  (the second half, after the dated comment)
-    run_tests(d, u, extra={"daly": daly(prof)})
+    extra = {"daly": daly(prof), "check": check}
+    if os.path.exists(os.path.join(OUT, "power.json")):   # the second pre-join check, run before the comment
+        extra["power"] = json.load(open(os.path.join(OUT, "power.json")))
+    run_tests(d, u, extra=extra)
 
 
 if __name__ == "__main__":
