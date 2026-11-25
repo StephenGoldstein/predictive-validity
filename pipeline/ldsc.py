@@ -57,7 +57,7 @@ CLUMP_R2, CLUMP_KB = 0.1, 1000
 TOP = 10
 CHUNK = 1_000_000   # rows per chunk when a harmonised file is streamed
 STREAMS = 16            # byte-range segments fetched concurrently per file: EBI throttles each connection to ~20 KB/s
-FETCH_ATTEMPTS = 30     # per segment; EBI refuses new connections for a while when many are open
+FETCH_ATTEMPTS = 200    # per segment: EBI caps connections per IP near 50, so a dropped segment can wait over an hour for a slot
 P_FLOOR = 1e-300    # p below the double range reads as 0 and munge would drop the SNP
 LOG_HEAD, LOG_TAIL = 5_000, 15_000
 # The harmonised files come in two layouts: the older one with hm_ columns, the GWAS-SSF one without the prefix
