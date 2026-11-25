@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -55,9 +56,18 @@ BUILD_ID: str | None = None                        # preclin.dev_program_build.b
 COMMENT_ID: str | None = None                      # the dated comment
 
 
+def floats(t: pd.DataFrame) -> pd.DataFrame:
+    """Numeric columns psycopg2 returned as decimal.Decimal become float64 (NULL as NaN); every other column stays."""
+    out = t.copy()
+    for c in out.columns:
+        if out[c].dtype == object and any(isinstance(v, Decimal) for v in out[c].dropna().head(20)):
+            out[c] = out[c].map(lambda v: float(v) if isinstance(v, Decimal) else (np.nan if v is None else v)).astype(float)
+    return out
+
+
 def profile() -> pd.DataFrame:
-    """preclin.disease_polygenicity, one row per candidate disease."""
-    return frame.query("SELECT * FROM preclin.disease_polygenicity ORDER BY mondo_id")
+    """preclin.disease_polygenicity, one row per candidate disease; NUMERIC columns as float64."""
+    return floats(frame.query("SELECT * FROM preclin.disease_polygenicity ORDER BY mondo_id"))
 
 
 def unit(d: pd.DataFrame, prof: pd.DataFrame) -> pd.DataFrame:

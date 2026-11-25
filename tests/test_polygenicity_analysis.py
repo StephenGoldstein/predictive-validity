@@ -88,3 +88,16 @@ def test_sensitivities_table_shows_the_negative_control_with_its_two_sided_p(tmp
     out = polygenicity_sensitivities_table()
     assert "Negative control" in out and "| 0.300 |" in out and "no association" in out
     assert "concentration" not in out.lower() and "continuous" not in out.lower()
+
+
+def test_profile_numeric_columns_come_back_as_floats_not_decimals():
+    """psycopg2 returns NUMERIC as decimal.Decimal; the profile's arithmetic (variance share, tertiles, the power
+    simulation) needs float64, with NULL as NaN; text columns are untouched."""
+    from decimal import Decimal
+    from report.polygenicity import floats
+    p = pd.DataFrame({"mondo_id": ["M1", "M2"], "score": [Decimal("1.5"), None], "label": ["a", None],
+                      "k_via_parent": [True, None]})
+    f = floats(p)
+    assert f.score.dtype == np.float64 and f.score[0] == 1.5 and np.isnan(f.score[1])
+    assert f.label.equals(p.label) and f.mondo_id.tolist() == ["M1", "M2"]   # untouched, however pandas holds None
+    assert f.k_via_parent.equals(p.k_via_parent)
