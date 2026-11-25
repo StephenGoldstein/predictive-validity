@@ -47,6 +47,7 @@ from scipy.stats import norm, spearmanr
 
 from pipeline import llm
 from pipeline.gwas_catalog import RELEASE, loci_catalog, read_associations, read_studies, trait_lookup
+from pipeline.opentargets import CACHE, curie
 from report import frame, section3
 from report.disease_match import Mondo, mondo_tables
 from report.evidence_lines import us
@@ -141,21 +142,28 @@ def liability_h2(h2_obs: float, p: float, k: float) -> float:
     return h2_obs * k ** 2 * (1 - k) ** 2 / (p * (1 - p) * norm.pdf(t) ** 2)
 
 
-def k_for(mondo_id: str, gbd_map: dict, gbd: dict, icd_codes: set[str], panukb: pd.DataFrame) -> tuple[float | None, str]:
-    """(K, source): the GBD cause's rate when the disease maps exactly or to a broader cause and K < 0.5; else the
-    Pan-UKB European case fraction of the ICD-10 code with most cases (at least MIN_UKB_CASES); else none."""
+def k_for(mondo_id: str, gbd_map: dict, gbd: dict, icd_codes: set[str], panukb: pd.DataFrame) \
+        -> tuple[float | None, str, str | None, bool]:
+    """(K, source, Pan-UKB code, via parent): the GBD cause's rate when the disease maps exactly or to a broader cause
+    and K < 0.5; else the Pan-UKB European case fraction of the disease's ICD-10 code, or the three-character parent
+    of one of its codes, with most cases (at least MIN_UKB_CASES); else none."""
     relation, cause = gbd_map.get(mondo_id, ("none", None))
     if relation in ("exact", "broader") and cause in gbd:
         k = gbd[cause] / 1e5
         if 0 < k < K_MAX:
-            return k, "gbd"
-    rows = panukb[panukb.phenocode.isin(icd_codes)]
+            return k, "gbd", None, False
+    rows = panukb[panukb.phenocode.isin(with_parents(icd_codes))]
     if len(rows):
         r = rows.sort_values("n_cases_EUR", ascending=False).iloc[0]
         k = float(r.n_cases_EUR / (r.n_cases_EUR + r.n_controls_EUR))
         if r.n_cases_EUR >= MIN_UKB_CASES and 0 < k < K_MAX:
-            return k, "panukb"
-    return None, "none"
+            return k, "panukb", str(r.phenocode), str(r.phenocode) not in icd_codes
+    return None, "none", None, False
+
+
+def with_parents(codes: set[str]) -> set[str]:
+    """The codes with the three-character parent of each."""
+    return {c for code in codes for c in (code, code[:3])}
 
 
 def failed_status(run_status: str | None) -> str:
@@ -205,14 +213,28 @@ def panukb_h2() -> pd.DataFrame:
 
 
 def icd_codes(members: set[str], xrefs: pd.DataFrame) -> set[str]:
-    codes = xrefs[xrefs.term_id.isin(members)].code
-    return {c for code in codes for c in (code, code[:3])}
+    """The disease's own ICD-10 codes (its members' MONDO cross-references), without parents."""
+    return set(xrefs[xrefs.term_id.isin(members)].code)
 
 
-def evidence_frame() -> pd.DataFrame:
-    return frame.query("""SELECT DISTINCT e.target_ensembl, m.mondo AS mondo_id, e.datasource
-                          FROM preclin.ot_evidence e JOIN preclin.ot_disease d USING (disease_id),
-                               unnest(d.mondo_ids) AS m(mondo)""")
+GENETIC_SOURCES = tuple(k for k, v in FAMILY.items() if v in ("gwas", "burden", "mendelian"))
+ASSOCIATIONS = os.path.join(CACHE, "association_by_datasource_direct")   # the release's direct associations, every gene
+
+
+def evidence_frame(path: str = ASSOCIATIONS, diseases: pd.DataFrame | None = None) -> pd.DataFrame:
+    """(target_ensembl, mondo_id, datasource) for every gene with a human-genetic association in the full Open
+    Targets direct-association file (Melissa's 2026-11-24 ruling: all genes, not the held targets), the disease
+    mapped to MONDO through preclin.ot_disease (or `diseases`: disease_id, mondo_id)."""
+    import pyarrow.dataset as ds  # noqa: PLC0415
+    t = ds.dataset(path, format="parquet").to_table(columns=["diseaseId", "targetId", "aggregationValue"],
+                                                    filter=ds.field("aggregationValue").isin(list(GENETIC_SOURCES)))
+    ev = t.to_pandas().rename(columns={"targetId": "target_ensembl", "aggregationValue": "datasource"})
+    ev["disease_id"] = ev.diseaseId.map(curie)
+    if diseases is None:
+        diseases = frame.query("""SELECT d.disease_id, m.mondo AS mondo_id
+                                  FROM preclin.ot_disease d, unnest(d.mondo_ids) AS m(mondo)""")
+    ev = ev.merge(diseases, on="disease_id")
+    return ev[["target_ensembl", "mondo_id", "datasource"]].drop_duplicates().reset_index(drop=True)
 
 
 def load_gbd(_args) -> None:
@@ -280,10 +302,12 @@ def score_fields(h2_obs: float, h2_obs_se: float, n_snps, loci: int, p: float, k
         out["ldsc_status"] = "no_k"
     elif not 0 < h2l <= 1:
         out["ldsc_status"] = "out_of_bounds"
+    elif loci == 0:
+        out["ldsc_status"] = "zero_loci"   # measurable heritability without a locus: the no-score group (2026-11-24 ruling)
     else:
         out["ldsc_status"] = "ok"
         out["score"] = loci / h2l
-        out["log10_score"] = float(np.log10(out["score"])) if loci > 0 else None
+        out["log10_score"] = float(np.log10(out["score"]))
     return out
 
 
@@ -310,11 +334,11 @@ def build(_args) -> None:
         row = {"mondo_id": d.mondo_id, "ldsc_status": d.ldsc_status}
         row["gwas_studies"], row["gws_associations"], row["loci_catalog"] = loci_catalog(assoc, mem, lookup)
         codes = icd_codes(mem, xrefs)
-        k, source = k_for(d.mondo_id, gmap, rates, codes, ukb)
-        row.update({"k": k, "k_source": source})
+        k, source, code, via_parent = k_for(d.mondo_id, gmap, rates, codes, ukb)
+        row.update({"k": k, "k_source": source, "k_code": code, "k_via_parent": via_parent})
         gwas, mend, form = gene_counts(d.mondo_id, mondo, mem, evidence)
         row.update({"gwas_genes": gwas, "mendelian_genes": mend, "mendelian_form": form, "me_log10": me_map.get(d.mondo_id)})
-        h = ukb_h2[ukb_h2.phenocode.isin(codes)].sort_values("z", ascending=False)
+        h = ukb_h2[ukb_h2.phenocode.isin(with_parents(codes))].sort_values("z", ascending=False)
         row.update({"panukb_h2_liab": float(h.h2_liab.iloc[0]) if len(h) else None, "panukb_h2_z": float(h.z.iloc[0]) if len(h) else None})
         cases = None
         if d.gcst is not None and d.gcst in studies.index:
@@ -336,7 +360,7 @@ def build(_args) -> None:
     cols = ["gwas_studies", "gws_associations", "loci_catalog", "n_cases", "n_controls", "n_eff", "h2_obs", "h2_obs_se",
             "intercept", "h2_z", "k", "k_source", "h2_liab", "ldsc_status", "loci", "concentration", "score", "log10_score",
             "gwas_genes", "gwas_genes_per_10k_cases", "mendelian_genes", "mendelian_form", "me_log10", "panukb_h2_liab",
-            "panukb_h2_z", "source_release_ids"]
+            "panukb_h2_z", "k_code", "k_via_parent", "source_release_ids"]
     with llm.connect() as conn, conn.cursor() as cur:
         for row in out:
             cur.execute(f"UPDATE preclin.disease_polygenicity SET {', '.join(f'{c} = %s' for c in cols)}, built_at = now() "

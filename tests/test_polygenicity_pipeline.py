@@ -50,10 +50,11 @@ def test_k_prefers_gbd_then_panukb_then_none():   # Review Focus 4
     gbd_map = {"M1": ("exact", 627), "M2": ("none", None), "M3": ("exact", 1)}
     gbd = {627: 226.6, 1: 60000.0}
     ukb = pd.DataFrame({"phenocode": ["M06", "L40"], "n_cases_EUR": [5000, 50], "n_controls_EUR": [415000, 420000]})
-    assert k_for("M1", gbd_map, gbd, {"M06"}, ukb) == (0.002266, "gbd")
-    assert k_for("M2", gbd_map, gbd, {"M06"}, ukb) == (5000 / 420000, "panukb")
-    assert k_for("M2", gbd_map, gbd, {"L40"}, ukb) == (None, "none")        # fewer than 100 cases
-    assert k_for("M3", gbd_map, gbd, set(), ukb) == (None, "none")          # K >= 0.5
+    assert k_for("M1", gbd_map, gbd, {"M06"}, ukb) == (0.002266, "gbd", None, False)
+    assert k_for("M2", gbd_map, gbd, {"M06"}, ukb) == (5000 / 420000, "panukb", "M06", False)
+    assert k_for("M2", gbd_map, gbd, {"M060"}, ukb) == (5000 / 420000, "panukb", "M06", True)   # through the parent code
+    assert k_for("M2", gbd_map, gbd, {"L40"}, ukb) == (None, "none", None, False)        # fewer than 100 cases
+    assert k_for("M3", gbd_map, gbd, set(), ukb) == (None, "none", None, False)          # K >= 0.5
 
 
 class StubMondo:
@@ -80,7 +81,8 @@ def test_score_fields_keep_h2_liab_for_low_z_and_score_only_when_ok():
     assert ok["ldsc_status"] == "ok" and ok["score"] == pytest.approx(10 / ok["h2_liab"])
     assert ok["log10_score"] == pytest.approx(np.log10(ok["score"]))
     none = score_fields(h2_obs=0.20, h2_obs_se=0.02, n_snps=1_000_000, loci=0, p=0.5, k=0.01)
-    assert none["ldsc_status"] == "ok" and none["score"] == 0 and none["log10_score"] is None
+    assert none["ldsc_status"] == "zero_loci" and none["score"] is None and none["log10_score"] is None
+    assert none["h2_liab"] == pytest.approx(ok["h2_liab"])   # the no-score group keeps its heritability
     assert score_fields(0.20, 0.02, 50_000, 10, 0.5, 0.01)["ldsc_status"] == "targeted_array"
     nok = score_fields(0.20, 0.02, 1_000_000, 10, 0.5, None)
     assert nok["ldsc_status"] == "no_k" and nok["h2_liab"] is None
@@ -103,5 +105,19 @@ def test_choose_study_skips_excluded_studies_and_breaks_ties_on_accession():
 def test_panukb_k_is_bounded_and_failed_runs_keep_their_reason():
     from pipeline.polygenicity import failed_status
     ukb = pd.DataFrame({"phenocode": ["X1"], "n_cases_EUR": [600], "n_controls_EUR": [400]})
-    assert k_for("M1", {}, {}, {"X1"}, ukb) == (None, "none")
+    assert k_for("M1", {}, {}, {"X1"}, ukb) == (None, "none", None, False)
     assert failed_status("no_effect") == "no_effect" and failed_status("fetch_failed") == "run_failed" and failed_status(None) == "run_failed"
+
+
+def test_evidence_frame_reads_every_gene_of_the_full_association_file(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from pipeline.polygenicity import evidence_frame
+    pq.write_table(pa.table({"diseaseId": ["EFO_1", "EFO_1", "EFO_2", "EFO_3"], "targetId": ["g1", "g2", "g2", "g9"],
+                             "aggregationValue": ["gwas_credible_sets", "orphanet", "gwas_credible_sets", "chembl"]}),
+                   tmp_path / "part-0.parquet")
+    diseases = pd.DataFrame({"disease_id": ["EFO:1", "EFO:2", "EFO:3"], "mondo_id": ["M1", "M2", "M3"]})
+    ev = evidence_frame(str(tmp_path), diseases)
+    assert set(ev.columns) == {"target_ensembl", "mondo_id", "datasource"}
+    assert sorted(map(tuple, ev.values.tolist())) == [("g1", "M1", "gwas_credible_sets"), ("g2", "M1", "orphanet"),
+                                                      ("g2", "M2", "gwas_credible_sets")]   # chembl is not a genetic source
