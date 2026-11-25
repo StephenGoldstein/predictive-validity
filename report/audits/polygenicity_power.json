@@ -1,0 +1,74 @@
+{
+ "cutpoints": [
+  169.05998127877174,
+  787.8994629360913
+ ],
+ "reps": 200,
+ "seed": 0,
+ "disease_sd": 0.5,
+ "genetics_rr": 2.0,
+ "base_rates": {
+  "mode_not_causal": 0.08670520231213873,
+  "s4": 0.18066561014263074
+ },
+ "entries": {
+  "none": 1700,
+  "top": 703,
+  "middle": 473,
+  "bottom": 307
+ },
+ "genetics_share": 0.1306943135406849,
+ "power": {
+  "P1": {
+   "1.25": {
+    "power": 0.27,
+    "power_holm_smallest": 0.19,
+    "estimable": 1.0
+   },
+   "1.5": {
+    "power": 0.46,
+    "power_holm_smallest": 0.355,
+    "estimable": 1.0
+   },
+   "2.0": {
+    "power": 0.845,
+    "power_holm_smallest": 0.725,
+    "estimable": 1.0
+   }
+  },
+  "P2": {
+   "0.8": {
+    "power": 0.26,
+    "power_holm_smallest": 0.195,
+    "estimable": 1.0
+   },
+   "0.67": {
+    "power": 0.52,
+    "power_holm_smallest": 0.38,
+    "estimable": 1.0
+   },
+   "0.5": {
+    "power": 0.75,
+    "power_holm_smallest": 0.62,
+    "estimable": 1.0
+   }
+  },
+  "P3": {
+   "0.8": {
+    "power": 0.0,
+    "power_holm_smallest": 0.0,
+    "estimable": 0.0
+   },
+   "0.67": {
+    "power": 0.0,
+    "power_holm_smallest": 0.0,
+    "estimable": 0.0
+   },
+   "0.5": {
+    "power": 0.0,
+    "power_holm_smallest": 0.0,
+    "estimable": 0.0
+   }
+  }
+ }
+}
