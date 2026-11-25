@@ -618,9 +618,9 @@ def target_origin_tests_table() -> str:
 POLYGENICITY_TESTS = {"P1": "P1: more \"target not causal\" stops per entry (Phase 2 and 3)",
                       "P2": "P2: lower Phase 2 advance (S4)",
                       "P3": "P3: smaller benefit of human genetic support (interaction on S4)"}
-POLYGENICITY_FAMILIES = {"gwas_size": "GWAS size (effective N as a covariate)", "continuous": "Score as log10, per unit",
-                         "concentration": "Heritability concentration tertiles (low against high)",
-                         "mendelian_form": "Mendelian form (none against a form), all unit diseases"}
+POLYGENICITY_FAMILIES = {"gwas_size": "GWAS size (effective N as a covariate)",
+                         "mendelian_form": "Mendelian form (none against a form), all unit diseases",
+                         "negative_control": "Negative control: stops unrelated to the disease's biology, two-sided"}
 
 
 def _polygenicity_rows(t: pd.DataFrame, names: dict) -> list[list]:
@@ -628,7 +628,7 @@ def _polygenicity_rows(t: pd.DataFrame, names: dict) -> list[list]:
     p = lambda v: "" if pd.isna(v) else f"{v:.3f}" if v >= 0.001 else f"{v:.1e}"  # noqa: E731
     rows = []
     for r in t.itertuples():
-        rows.append([names.get(r.test, r.test), cell(r), p(r.p_one_sided), p(r.p_holm), r.reading,
+        rows.append([names.get(r.test, r.test), cell(r), p(r.p if pd.isna(r.p_one_sided) else r.p_one_sided), p(r.p_holm), r.reading,
                      "" if pd.isna(r.exposed_entries) else f"{int(r.exposed_events):,} of {int(r.exposed_entries):,}",
                      "" if pd.isna(r.reference_entries) else f"{int(r.reference_events):,} of {int(r.reference_entries):,}"])
     return rows
@@ -644,7 +644,8 @@ def polygenicity_tests_table() -> str:
 
 
 def polygenicity_sensitivities_table() -> str:
-    """The four registered sensitivities, each P1-P3 with Holm within itself."""
+    """The sensitivities as amended on 2026-11-24: GWAS size and the Mendelian form, each P1-P3 with Holm within
+    itself, and the negative control, whose p is two-sided and outside any family."""
     t = pd.read_csv(os.path.join(OUT, "polygenicity", "sensitivities.csv"))
     rows = []
     for family, g in t.groupby("family", sort=False):
@@ -670,7 +671,8 @@ def polygenicity_tertiles_table() -> str:
 NO_SCORE_REASONS = {"no_study": "No GWAS study of the disease or a subtype", "no_sumstats": "No public harmonised summary statistics",
                     "not_european": "No study of at least 90% European ancestry", "targeted_array": "Targeted genotyping array only",
                     "no_case_control": "No case-control study", "run_failed": "Summary statistics without effect sizes, or the LDSC run failed",
-                    "low_z": "Heritability estimate below z = 4", "no_k": "No population prevalence (GBD or Pan-UKB)",
+                    "low_z": "Heritability estimate below z = 4", "zero_loci": "Heritability at z = 4 or more but no genome-wide significant locus",
+                    "no_k": "No population prevalence (GBD or Pan-UKB)",
                     "out_of_bounds": "Liability-scale heritability outside (0, 1]"}
 
 

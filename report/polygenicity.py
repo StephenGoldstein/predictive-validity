@@ -6,22 +6,24 @@ out of the unit (IC_...qFfZeg); heritability A, our LDSC on the largest European
 loci and heritability from the same GWAS; K from GBD with the Pan-UKB case fraction as fallback; four registered
 sensitivities (issuecomment-7123250021). The definitions used, the unit counts, the build id and the tertile
 cutpoints are fixed in a dated comment before any outcome is joined (report/audits/polygenicity_definitions.md); the
-cutpoints are the constants CUTPOINTS and CONC_CUTPOINTS below, committed with that comment.
+cutpoints are the constant CUTPOINTS below, committed with that comment. Her decision of 2026-11-24
+(issuecomment-7149832720) amended the rest: zero loci and a heritability z below 4 are the no-score group; gene counts
+read every gene of the Open Targets association file; the sensitivities are GWAS size, the Mendelian form and a
+negative control; the share of score variance within disease area and a power simulation are posted with the tertiles.
 
 Unit (unit): non-oncology, non-infectious diseases with a US-developed Phase 2 entry in 2008-2019, each disease one
 observation. Scored diseases (an estimate: preclin.disease_polygenicity.ldsc_status ok) form the tertiles of the
-score (loci per unit of liability-scale SNP heritability) and of the heritability concentration; the rest are the
-no-score group, reported, never tested.
+score (loci per unit of liability-scale SNP heritability); the rest are the no-score group, reported, never tested.
 
 Registered tests (registered, second half of this module, run only once CUTPOINTS is set): P1, more "target not
 causal" stops per entry in the top tertile than the bottom (Phase 2 and 3 entries, COVARS_23); P2, lower Phase 2
 advance (S4, COVARS); P3, a smaller S4 risk ratio of human genetic support in the top tertile (interaction, COVARS).
 Entries with a resolved primary target; modified Poisson clustered by disease; one-sided p in the registered
-direction, Holm across the three, as the #140 confirmation reads its tests. Registered sensitivities, each repeating
-P1-P3 with Holm within: GWAS size (log10 effective N as a covariate), the score as a continuous log10 term, the
-concentration tertiles (low concentration in place of high polygenicity), and a Mendelian form over all unit diseases
-(no Mendelian form in place of the top tertile). Descriptive, not registered: tertile by disease area, the no-score
-group, entries without a target, and the checks named in the appendix.
+direction, Holm across the three, as the #140 confirmation reads its tests. Sensitivities (amended 2026-11-24): GWAS
+size (log10 effective N as a covariate) and a Mendelian form over all unit diseases (no Mendelian form in place of the
+top tertile), each P1-P3 with Holm within; and the negative control, P1's model on stops unrelated to the disease's
+biology, two-sided, outside any family. Descriptive, not registered: tertile by disease area, the no-score group,
+entries without a target, and the checks named in the appendix.
 
 Writes report/output/polygenicity/: unit.csv, membership.csv, then tests.csv, sensitivities.csv, tertiles.csv,
 area.csv, no_score.csv, daly.csv and numbers.json.
@@ -30,6 +32,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import numpy as np
 import pandas as pd
@@ -48,7 +51,6 @@ EXCLUDED_AREAS = ("oncology", "infectious_disease")
 LEVELS = ("bottom", "middle", "top")
 # Fixed before any outcome was joined (the dated comment on #147 named in polygenicity_definitions.md); None until then.
 CUTPOINTS: tuple[float, float] | None = None       # score: 33.3rd and 66.7th percentiles over scored unit diseases
-CONC_CUTPOINTS: tuple[float, float] | None = None  # heritability concentration, the same way
 BUILD_ID: str | None = None                        # preclin.dev_program_build.build_id the unit was counted on
 COMMENT_ID: str | None = None                      # the dated comment
 
@@ -83,15 +85,34 @@ def tertile(score: pd.Series, cuts: tuple[float, float]) -> pd.Series:
     return out
 
 
-def membership(u: pd.DataFrame, cuts: tuple[float, float] | None, conc_cuts: tuple[float, float] | None) -> pd.DataFrame:
+def membership(u: pd.DataFrame, cuts: tuple[float, float] | None) -> pd.DataFrame:
     """The unit with its tertiles: the audit file and the comment's membership list."""
     m = u.copy()
     m["tertile"] = tertile(m.score, cuts) if cuts else "none"
-    m["conc_tertile"] = tertile(m.concentration, conc_cuts) if conc_cuts else "none"
     cols = ["mondo_id", "label", "bio_area", "entries", "ldsc_status", "gcst", "trait_level", "n_cases", "n_controls",
-            "h2_obs", "h2_z", "k", "k_source", "h2_liab", "loci", "score", "tertile", "concentration", "conc_tertile",
+            "h2_obs", "h2_z", "k", "k_source", "k_code", "k_via_parent", "h2_liab", "loci", "score", "tertile",
             "mendelian_form"]
     return m[[c for c in cols if c in m.columns]]
+
+
+def within_area_variance(u: pd.DataFrame) -> dict:
+    """Melissa's first pre-join check: the share of the log10 score's variance that lies within disease area over
+    the scored unit diseases (1 - between-area sum of squares / total). Small means the area adjustment leaves
+    little to test."""
+    s = u[u.scored.fillna(False).astype(bool) & u.log10_score.notna()]
+    out = {"diseases": int(len(s)), "areas": int(s.bio_area.nunique()), "share": None}
+    if len(s) < 2:
+        return out
+    total = float(((s.log10_score - s.log10_score.mean()) ** 2).sum())
+    within = float((s.log10_score - s.groupby("bio_area").log10_score.transform("mean")).pow(2).sum())
+    out["share"] = within / total if total > 0 else None
+    return out
+
+
+def evidence_line_build() -> dict:
+    """The latest stored evidence-line build, the provenance of the genetic-support line P3 reads (g3)."""
+    b = frame.query("SELECT build_id::text, built_at, code_commit FROM preclin.evidence_line_build ORDER BY built_at DESC LIMIT 1")
+    return {"build_id": b.build_id.iloc[0], "built_at": str(b.built_at.iloc[0]), "code_commit": b.code_commit.iloc[0]}
 
 
 def current_build() -> dict:
@@ -106,7 +127,11 @@ def pre_comment_check(d: pd.DataFrame, u: pd.DataFrame) -> dict:
     scored = u[u.scored]
     out = {**current_build(), "diseases": int(len(u)), "entries": int(u.entries.sum()),
            "scored_diseases": int(len(scored)), "scored_entries": int(scored.entries.sum()),
-           "not_profiled": sorted(u.mondo_id[u.ldsc_status.eq("not_profiled")])}
+           "not_profiled": sorted(u.mondo_id[u.ldsc_status.eq("not_profiled")]),
+           "zero_loci_diseases": int(u.ldsc_status.eq("zero_loci").sum()),
+           "k_via_parent_diseases": int(u.k_via_parent.fillna(False).astype(bool).sum()) if "k_via_parent" in u.columns else None,
+           "within_area_variance": within_area_variance(u) if "log10_score" in u.columns else None,
+           "evidence_line_build": evidence_line_build()}
     e = d[d.us_site & d.phase.between(2, 3) & d.mondo_id.isin(u.mondo_id)]
     e = with_modes(traced_stops(e))
     history = set(engaged_modes().key)
@@ -227,11 +252,19 @@ def main() -> None:
     prof = profile()
     u = unit(d, prof)
     u.to_csv(os.path.join(OUT, "unit.csv"), index=False)
-    membership(u, CUTPOINTS, CONC_CUTPOINTS).to_csv(os.path.join(OUT, "membership.csv"), index=False)
+    membership(u, CUTPOINTS).to_csv(os.path.join(OUT, "membership.csv"), index=False)
     check = pre_comment_check(d, u)
     print(json.dumps(jsonable(check), indent=1))
     with open(os.path.join(OUT, "check.json"), "w") as f:
         json.dump(jsonable(check), f, indent=1)
+    if "--power" in sys.argv:   # the second pre-join check, on the candidate cutpoints; slow, so only when asked
+        from report.polygenicity_tests import frame_with_outcomes, power_simulation  # noqa: PLC0415
+        reps = int(sys.argv[sys.argv.index("--power") + 1]) if len(sys.argv) > sys.argv.index("--power") + 1 else 200
+        cuts = CUTPOINTS or cutpoints(u.score[u.scored])
+        power = power_simulation(frame_with_outcomes(d, u, cuts), reps=reps)
+        with open(os.path.join(OUT, "power.json"), "w") as f:
+            json.dump(jsonable({"cutpoints": list(cuts), **power}), f, indent=1)
+        print(json.dumps(jsonable(power["power"]), indent=1))
     if CUTPOINTS is None:
         print("CUTPOINTS not set: the tertiles are not fixed; no outcome is joined.")
         return

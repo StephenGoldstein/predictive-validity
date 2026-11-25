@@ -20,7 +20,8 @@ def synthetic(n=600, seed=0):
                          "novel": 0.0, "precedent": 0.0, "us_site": True, "log10_score": score,
                          "conc_tertile": rng.choice(["bottom", "middle", "top"], n),
                          "mendelian_form": rng.integers(0, 2, n).astype(bool), "log10_n_eff": 4 + rng.random(n),
-                         "scored": True, "stop_no_benefit": mode})
+                         "scored": True, "stop_no_benefit": mode,
+                         "stop_unrelated": (rng.random(n) < 0.1).astype(float), "stop_safety": (rng.random(n) < 0.05).astype(float)})
 
 
 def test_cohort_keeps_the_two_levels_with_a_resolved_target_and_the_right_phases():
@@ -52,10 +53,32 @@ def test_p3_is_not_estimable_when_a_cell_has_no_event():
     assert "rr" not in r and r["estimable"] is False and r["cells"]["top_genetics"]["events"] == 0
 
 
-def test_sensitivities_have_the_four_registered_families():
+def test_sensitivities_have_the_three_amended_families():   # Melissa's 2026-11-24 decision
     s = sensitivities(synthetic())
-    assert set(s) == {"gwas_size", "continuous", "concentration", "mendelian_form"}
-    assert set(s["continuous"]) == {"P1", "P2", "P3"} and "p_holm" in s["gwas_size"]["P1"]
+    assert set(s) == {"gwas_size", "mendelian_form", "negative_control"}
+    assert set(s["mendelian_form"]) == {"P1", "P2", "P3"} and "p_holm" in s["gwas_size"]["P1"]
+    assert set(s["negative_control"]) == {"P1"}
+
+
+def test_negative_control_leaves_safety_stops_out_and_is_two_sided():
+    from report.polygenicity_tests import negative_control
+    d = synthetic()
+    r = negative_control(d)
+    c = cohort(d, "mode_not_causal")
+    assert r["exposed_entries"] + r["reference_entries"] == int((c.stop_safety <= 0).sum())
+    assert r["exposed_events"] == int(c.stop_unrelated[(c.top > 0) & (c.stop_safety <= 0)].sum())
+    assert "rr" in r and "p" in r and "p_one_sided" not in r and "p_holm" not in r
+    assert r["reading"] in ("no association", "association")
+
+
+def test_power_simulation_reports_power_per_test_and_effect():
+    from report.polygenicity_tests import power_simulation
+    out = power_simulation(synthetic(), reps=3, seed=1)
+    assert set(out["power"]) == {"P1", "P2", "P3"} and out["reps"] == 3
+    for by_effect in out["power"].values():
+        assert by_effect and all(0.0 <= v["power"] <= 1.0 for v in by_effect.values())
+    assert out["base_rates"]["mode_not_causal"] > 0 and out["base_rates"]["s4"] > 0
+    assert {"top", "bottom"} <= set(out["entries"])
 
 
 def test_results_table_rows_and_columns():
@@ -69,9 +92,9 @@ def test_numbers_key_the_tertile_rates_and_cutpoints_and_carry_the_extras():
     from report.polygenicity_tests import numbers
     d = synthetic()
     desc = {"by_tertile": [{"tertile": "bottom", "entries": 10}, {"tertile": "top", "entries": 12}], "no_score": {"diseases": 2}}
-    n = numbers(d, {"P1": {}}, {}, desc, cuts=(1.5, 2.5), conc_cuts=(0.1, 0.2), extra={"daly": {"flags": {"diseases": 3}}})
+    n = numbers(d, {"P1": {}}, {}, desc, cuts=(1.5, 2.5), extra={"daly": {"flags": {"diseases": 3}}})
     assert n["tertiles"]["top"]["entries"] == 12 and n["tertiles"]["bottom"]["entries"] == 10
-    assert n["cutpoints"]["score"] == {"lower": 1.5, "upper": 2.5} and n["cutpoints"]["concentration"]["upper"] == 0.2
+    assert n["cutpoints"]["score"] == {"lower": 1.5, "upper": 2.5} and "concentration" not in n["cutpoints"]
     assert n["daly"]["flags"]["diseases"] == 3 and n["cohort"]["entries"] == len(d)
     assert n["cohort"]["scored_diseases"] == d.mondo_id.nunique()
 
@@ -88,12 +111,6 @@ def test_descriptives_always_report_each_group_size(monkeypatch):
     assert out["z_at_least_2"]["diseases"] == 0 and out["z_at_least_2"]["tests"] == {}
     assert out["gbd_k_only"]["diseases"] == 0 and out["catalog_loci"]["diseases"] == 0
     assert out["gwas_genes"]["diseases"] == 0 and out["oconnor"]["n"] == 0
-
-
-def test_continuous_sensitivity_is_estimable():   # it compared every entry with no one, so it never estimated
-    from report.polygenicity_tests import continuous
-    c = continuous(synthetic(3000))
-    assert "rr" in c["P1"] and "rr" in c["P2"] and c["P1"]["reading"] != "not estimable"
 
 
 def test_holm_keeps_the_registered_family_of_three():

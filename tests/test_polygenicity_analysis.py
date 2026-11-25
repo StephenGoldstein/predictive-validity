@@ -1,6 +1,7 @@
 """Polygenicity (#147): the unit, the tertile rule, the pre-comment check (report.polygenicity, first half)."""
 import numpy as np
 import pandas as pd
+import pytest
 
 from report.polygenicity import cutpoints, tertile, unit
 
@@ -59,6 +60,31 @@ def test_membership_carries_the_study_heritability_prevalence_and_loci():
                       "k_source": ["gbd", "panukb"], "score": [10.0, 40.0], "concentration": [0.2, 0.5],
                       "mendelian_form": [True, False], "h2_obs": [0.1, 0.2], "h2_z": [5.0, 6.0], "k": [0.01, 0.02],
                       "h2_liab": [0.3, 0.4], "loci": [3, 16], "n_cases": [1000, 2000], "n_controls": [5000, 6000]})
-    m = membership(u, (20.0, 30.0), (0.3, 0.4))
-    assert list(m.tertile) == ["bottom", "top"] and list(m.conc_tertile) == ["bottom", "top"]
+    m = membership(u, (20.0, 30.0))
+    assert list(m.tertile) == ["bottom", "top"] and "conc_tertile" not in m.columns
     assert {"h2_obs", "h2_z", "k", "h2_liab", "loci", "n_cases", "n_controls"} <= set(m.columns)
+
+
+def test_within_area_variance_share():   # Melissa's pre-join check 1
+    from report.polygenicity import within_area_variance
+    u = pd.DataFrame({"mondo_id": list("abcdef"), "bio_area": ["x", "x", "x", "y", "y", "y"], "scored": True,
+                      "log10_score": [1.0, 2.0, 3.0, 1.0, 2.0, 3.0]})
+    assert within_area_variance(u)["share"] == pytest.approx(1.0)        # equal area means: every bit of it within
+    assert within_area_variance(u.assign(log10_score=[1.0, 1.0, 1.0, 3.0, 3.0, 3.0]))["share"] == pytest.approx(0.0)
+    r = within_area_variance(u.assign(log10_score=[1.0, 2.0, 3.0, 2.0, 3.0, 4.0]))
+    assert 0 < r["share"] < 1 and r["diseases"] == 6 and r["areas"] == 2
+    assert within_area_variance(u.assign(scored=False))["diseases"] == 0
+
+
+def test_sensitivities_table_shows_the_negative_control_with_its_two_sided_p(tmp_path, monkeypatch):
+    from report.render import polygenicity_sensitivities_table
+    (tmp_path / "polygenicity").mkdir()
+    pd.DataFrame({"family": ["gwas_size", "negative_control"], "test": ["P1", "P1"], "rr": [1.2, 1.05], "lo": [1.0, 0.8],
+                  "hi": [1.5, 1.4], "p": [0.04, 0.3], "p_one_sided": [0.02, np.nan], "p_holm": [0.06, np.nan],
+                  "reading": ["same direction, not confirmed", "no association"], "exposed_entries": [100, 90],
+                  "exposed_events": [20, 9], "reference_entries": [100, 95], "reference_events": [10, 9]}) \
+        .to_csv(tmp_path / "polygenicity" / "sensitivities.csv", index=False)
+    monkeypatch.setattr("report.render.OUT", str(tmp_path))
+    out = polygenicity_sensitivities_table()
+    assert "Negative control" in out and "| 0.300 |" in out and "no association" in out
+    assert "concentration" not in out.lower() and "continuous" not in out.lower()
