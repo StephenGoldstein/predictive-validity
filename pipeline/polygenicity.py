@@ -36,6 +36,7 @@ gbd_citation.txt). IHME publishes it under the free-of-charge non-commercial use
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import sys
 from collections import defaultdict
@@ -47,7 +48,8 @@ from scipy.stats import norm, spearmanr
 
 from pipeline import llm
 from pipeline.gwas_catalog import RELEASE, loci_catalog, read_associations, read_studies, trait_lookup
-from pipeline.opentargets import CACHE, curie
+from pipeline.opentargets import CACHE, SOURCE_URL, curie
+from pipeline.opentargets import RELEASE as OT_RELEASE
 from report import frame, section3
 from report.disease_match import Mondo, mondo_tables
 from report.evidence_lines import us
@@ -221,6 +223,21 @@ GENETIC_SOURCES = tuple(k for k, v in FAMILY.items() if v in ("gwas", "burden", 
 ASSOCIATIONS = os.path.join(CACHE, "association_by_datasource_direct")   # the release's direct associations, every gene
 
 
+def association_digest(path: str = ASSOCIATIONS) -> str:
+    """SHA-256 over the sorted parquet files' digests: the association file's content, for its release row."""
+    files = sorted(f for f in os.listdir(path) if f.endswith(".parquet"))
+    return hashlib.sha256("".join(llm.sha256_file(os.path.join(path, f)) for f in files).encode()).hexdigest()
+
+
+def register_associations(cur, path: str = ASSOCIATIONS) -> int:
+    """The association file as a source release (preclin.evidence_source_release); returns its id."""
+    n = sum(f.endswith(".parquet") for f in os.listdir(path))
+    return llm.register_release(cur, "open_targets_platform_associations", OT_RELEASE,
+                                f"{SOURCE_URL}/association_by_datasource_direct", association_digest(path),
+                                {"files": n, "retrieved": "2026-11-24", "from": "ftp.ebi.ac.uk",
+                                 "use": "gene counts and Mendelian form over every gene (#147, 2026-11-24 decision)"})
+
+
 def evidence_frame(path: str = ASSOCIATIONS, diseases: pd.DataFrame | None = None) -> pd.DataFrame:
     """(target_ensembl, mondo_id, datasource) for every gene with a human-genetic association in the full Open
     Targets direct-association file (Melissa's 2026-11-24 ruling: all genes, not the held targets), the disease
@@ -327,7 +344,10 @@ def build(_args) -> None:
     me_map = {m: float(r.log10_me) for r in me.itertuples() for m in r.mondo_ids.split(";")}
     evidence = evidence_frame()
     assoc, lookup = read_associations(), trait_lookup()
-    releases = [release_id("gwas_catalog"), release_id("gbd_prevalence"), release_id("open_targets_platform_evidence")]
+    with llm.connect() as conn, conn.cursor() as cur:
+        assoc_release = register_associations(cur)
+        conn.commit()
+    releases = [release_id("gwas_catalog"), release_id("gbd_prevalence"), assoc_release]
     out = []
     for d in prof.itertuples():
         mem = members(d.mondo_id, desc)

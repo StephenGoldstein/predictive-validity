@@ -121,3 +121,13 @@ def test_evidence_frame_reads_every_gene_of_the_full_association_file(tmp_path):
     assert set(ev.columns) == {"target_ensembl", "mondo_id", "datasource"}
     assert sorted(map(tuple, ev.values.tolist())) == [("g1", "M1", "gwas_credible_sets"), ("g2", "M1", "orphanet"),
                                                       ("g2", "M2", "gwas_credible_sets")]   # chembl is not a genetic source
+
+
+def test_association_digest_is_deterministic_and_sensitive_to_the_files(tmp_path):
+    from pipeline.polygenicity import association_digest
+    (tmp_path / "part-0.parquet").write_bytes(b"a")
+    (tmp_path / "part-1.parquet").write_bytes(b"b")
+    d1 = association_digest(str(tmp_path))
+    assert d1 == association_digest(str(tmp_path)) and len(d1) == 64
+    (tmp_path / "part-1.parquet").write_bytes(b"c")
+    assert association_digest(str(tmp_path)) != d1
