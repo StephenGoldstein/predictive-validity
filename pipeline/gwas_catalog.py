@@ -62,7 +62,7 @@ def download(url: str, dest: str, attempts: int = 6, streams: int = 1) -> str:
         return dest
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     part = dest + ".part"
-    total = segmentable(url) if streams > 1 and not os.path.exists(part) else None
+    total = segmentable(url, attempts) if streams > 1 and not os.path.exists(part) else None
     if total is None:
         _fetch(url, part, 0, None, attempts)
     else:
@@ -80,14 +80,20 @@ def download(url: str, dest: str, attempts: int = 6, streams: int = 1) -> str:
     return dest
 
 
-def segmentable(url: str) -> int | None:
-    """The file's length when the server accepts byte ranges, else None."""
-    try:
-        r = requests.head(url, allow_redirects=True, timeout=60)
-        if r.ok and r.headers.get("Accept-Ranges") == "bytes" and r.headers.get("Content-Length"):
-            return int(r.headers["Content-Length"])
-    except requests.RequestException:
-        pass
+def segmentable(url: str, attempts: int = 6) -> int | None:
+    """The file's length when the server accepts byte ranges, else None; a refused or failed size check is
+    retried attempts times, so a busy server does not demote the download to one stream."""
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.head(url, allow_redirects=True, timeout=60)
+            if r.ok:
+                if r.headers.get("Accept-Ranges") == "bytes" and r.headers.get("Content-Length"):
+                    return int(r.headers["Content-Length"])
+                return None
+        except requests.RequestException:
+            pass
+        if attempt < attempts:
+            time.sleep(min(15 * attempt, 60))
     return None
 
 

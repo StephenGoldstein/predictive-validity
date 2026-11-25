@@ -8,7 +8,7 @@ from pipeline.gwas_catalog import download
 DATA = bytes(range(256)) * 4096   # 1 MiB
 
 
-def serve(ranges=True, honour_get=True, refuse_first=0):
+def serve(ranges=True, honour_get=True, refuse_first=0, refuse_head_first=0):
     """A range-capable file server on a free port; (server, url, [(method, Range header)...])."""
     seen = []
 
@@ -34,7 +34,11 @@ def serve(ranges=True, honour_get=True, refuse_first=0):
             self.end_headers()
 
         def do_HEAD(self):
-            self._head(*self._bounds())
+            bounds = self._bounds()
+            if sum(m == "HEAD" for m, _ in seen) <= refuse_head_first:
+                self.send_error(503)
+                return
+            self._head(*bounds)
 
         def do_GET(self):
             start, end, partial = self._bounds()
@@ -123,4 +127,16 @@ def test_oversized_segment_file_is_refetched(tmp_path):
     download(url, dest, streams=4)
     assert open(dest, "rb").read() == DATA
     assert ("GET", f"bytes={n}-{2 * n - 1}") in seen
+    srv.shutdown()
+
+
+def test_refused_size_check_does_not_demote_to_one_stream(tmp_path, monkeypatch):
+    monkeypatch.setattr("pipeline.gwas_catalog.time.sleep", lambda s: None)
+    srv, url, seen = serve(refuse_head_first=2)
+    dest = str(tmp_path / "f.gz")
+    assert download(url, dest, streams=4) == dest
+    assert open(dest, "rb").read() == DATA
+    assert sum(m == "HEAD" for m, _ in seen) == 3
+    gets = [r for m, r in seen if m == "GET"]
+    assert len(gets) == 4 and all(gets)
     srv.shutdown()
