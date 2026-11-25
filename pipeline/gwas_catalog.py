@@ -52,6 +52,8 @@ CHROMOSOMES = {str(i) for i in range(1, 23)} | {"X"}
 PLATFORM = re.compile(r"\[[^\]]*?~?\s*(\d[\d,]*)")
 CASES = re.compile(r"(\d[\d,]*)\s+[^,\d]*?\bcases\b", re.I)
 CONTROLS = re.compile(r"(\d[\d,]*)\s+[^,\d]*?\bcontrols\b", re.I)
+CLOSE = {"Connection": "close"}   # a kept-alive socket lives until the response is garbage-collected, and EBI counts
+                                  # idle sockets against its per-IP connection cap
 
 
 def download(url: str, dest: str, attempts: int = 6, streams: int = 1) -> str:
@@ -85,7 +87,7 @@ def segmentable(url: str, attempts: int = 6) -> int | None:
     retried attempts times, so a busy server does not demote the download to one stream."""
     for attempt in range(1, attempts + 1):
         try:
-            r = requests.head(url, allow_redirects=True, timeout=60)
+            r = requests.head(url, headers=CLOSE, allow_redirects=True, timeout=60)
             if r.ok:
                 if r.headers.get("Accept-Ranges") == "bytes" and r.headers.get("Content-Length"):
                     return int(r.headers["Content-Length"])
@@ -107,7 +109,7 @@ def _fetch(url: str, part: str, start: int, end: int | None, attempts: int) -> N
             if end is not None and start + have >= end:
                 return
             headers = {"Range": f"bytes={start + have}-{'' if end is None else end - 1}"} if have or end is not None else {}
-            with requests.get(url, headers=headers, stream=True, timeout=120) as r:
+            with requests.get(url, headers={**headers, **CLOSE}, stream=True, timeout=120) as r:
                 if r.status_code == 416:  # nothing left to fetch
                     return
                 r.raise_for_status()
