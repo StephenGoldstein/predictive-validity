@@ -209,7 +209,7 @@ def panukb_manifest() -> pd.DataFrame:
 
 def panukb_h2() -> pd.DataFrame:
     h = pd.read_csv(os.path.join(PANUKB, "h2_manifest.tsv.bgz"), sep="\t", compression="gzip", low_memory=False)
-    h = h[h.trait_type.eq("icd10") & h.ancestry.eq("EUR") & h["qcflags.pass_all"].astype(str).str.lower().eq("true")]
+    h = h[h.trait_type.eq("icd10") & h["pop"].eq("EUR") & h["qcflags.pass_all"].astype(str).str.lower().eq("true")]
     return pd.DataFrame({"phenocode": h.phenocode.astype(str), "h2_liab": h["estimates.final.h2_liability"],
                          "z": h["estimates.final.h2_z"]})
 

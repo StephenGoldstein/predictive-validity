@@ -131,3 +131,19 @@ def test_association_digest_is_deterministic_and_sensitive_to_the_files(tmp_path
     assert d1 == association_digest(str(tmp_path)) and len(d1) == 64
     (tmp_path / "part-1.parquet").write_bytes(b"c")
     assert association_digest(str(tmp_path)) != d1
+
+
+def test_panukb_h2_keeps_european_icd10_rows_that_pass_qc(tmp_path, monkeypatch):
+    """The real h2 manifest names the ancestry column `pop` (and pandas has a .pop method, so it is read by key)."""
+    import gzip
+    from pipeline import polygenicity
+    rows = ["trait_type\tphenocode\tpop\tqcflags.pass_all\testimates.final.h2_liability\testimates.final.h2_z",
+            "icd10\tM06\tEUR\tTrue\t0.12\t6.5",
+            "icd10\tM06\tAFR\tTrue\t0.30\t1.2",
+            "icd10\tL40\tEUR\tFalse\t0.20\t2.0",
+            "phecode\t714\tEUR\tTrue\t0.15\t7.0"]
+    with gzip.open(tmp_path / "h2_manifest.tsv.bgz", "wt") as f:
+        f.write("\n".join(rows) + "\n")
+    monkeypatch.setattr(polygenicity, "PANUKB", str(tmp_path))
+    h = polygenicity.panukb_h2()
+    assert h.values.tolist() == [["M06", 0.12, 6.5]]
