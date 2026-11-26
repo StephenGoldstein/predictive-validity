@@ -204,6 +204,23 @@ Most "not causal" calls rest on the target never later working in the disease ra
 *Phase 2 and 3 entries 2008–2019 developed in the US whose target–disease pairs share one settled origin. Each route against every other settled route, adjusted as in the registered test; blue, approval; orange, a stop because the target was not causal. Rows run from most to least often approved, with human and tumour genetics pooled at the top. Programs that stopped although the target was causal count as not stopping for a non-causal target. For an earlier drug approved for another disease, that approval is itself much of what labels a stop not causal.*
 
 
+### Do single-target drugs fail more often in polygenic diseases
+
+For each non-oncology, non-infectious disease with a US-developed Phase 2 entry in 2008–2019, polygenicity was measured from its largest European GWAS with public summary statistics: the number of independent genome-wide significant loci in that study divided by the same study's SNP heritability on the liability scale (appendix). A disease whose genetic risk is spread over many small-effect variants scores high; one whose heritability sits in a few loci scores low. Of the 531 diseases, 114 have a score (1,604 of 3,183 Phase 2 and 3 entries); the rest have no public summary statistics, no usable heritability estimate or no population prevalence, and are reported as a group of their own. The scored diseases were split into tertiles fixed before any outcome was joined (issue #147, comment 7181532783), and three hypotheses were registered for the most polygenic tertile against the least: more stops because the target was not causal (P1), fewer Phase 2 advances (P2), and a smaller benefit of genetic support (P3). Each p is one-sided in the registered direction, and Holm's correction runs across the three.
+
+**P1, not-causal stops: not replicated.** Phase 2 and 3 entries in the most polygenic tertile stopped because the target was not causal 1.00 times as often per entry as entries in the least polygenic tertile (9% against 11%; 95% range 0.64–1.55; one-sided p 0.508, 1.000 after Holm), on 673 and 286 entries.
+
+**P2, Phase 2 advance: not replicated.** Phase 2 entries in the most polygenic tertile advanced to Phase 3 or approval 1.33 times as often as entries in the least (18% against 16%; 0.74–2.39; one-sided p 0.829, 1.000 after Holm). The registered direction was fewer advances in the most polygenic tertile.
+
+**P3, the genetics benefit by tertile: not estimable.** The interaction is fit only when each of its four cells holds at least 15 target sets and one event. Phase 2 entries with rare-variant or Mendelian genetic support number 74 in the most polygenic tertile (33 target sets, 18 advanced) and 15 in the least (12 target sets, 1 advanced), against 409 and 193 entries without support. The least polygenic cell with support falls short of the 15 target sets, so the interaction was not fit and Holm's correction keeps three tests. That cell is small by construction: the score's numerator is the locus count, so the least polygenic diseases carry the fewest loci and the fewest targets with genetic support.
+
+![Not-causal stops, Phase 2 advance and the benefit of genetic support, by polygenicity tertile](report/output/figures/polygenicity_tertiles.png)
+
+*US-developed Phase 2 and 3 entries 2008–2019 in non-oncology, non-infectious diseases, by the disease's polygenicity tertile, with the no-score diseases as a fourth group. Left: share of Phase 2 and 3 entries that stopped because the target was not causal. Middle: share of Phase 2 entries that advanced. Right: the risk ratio of Phase 2 advance with rare-variant or Mendelian genetic support against without, within each tertile, with its 95% range where the test is estimable. Rates are unadjusted; the tests above adjust as the other stop analyses do.*
+
+The 417 diseases without a score (1,579 entries) stopped because the target was not causal in 10% of Phase 2 and 3 entries and advanced from Phase 2 in 18%; most have no GWAS of the disease with public summary statistics, so they are the diseases genetics has least to say about (appendix). Polygenicity and disease area overlap: the tertiles split unevenly by area (appendix), and 79% of the score's variance lies within area, so the area adjustment in each test absorbs part of whatever runs through area. Two sensitivities, adjusting for GWAS size and splitting all 531 diseases by whether a Mendelian form exists, are in the appendix with their readings: same direction, not confirmed (GWAS size) and same direction, not confirmed (Mendelian form) for P1. A negative control, P1's model with the outcome a stop for a sponsor decision or an operational reason, read "no association"; an association there would point to confounding by area or sponsor interest rather than target biology.
+
+
 ### What predicts safety failures
 
 ![Which safety evidence goes with more Phase 1–3 safety stops, with efficacy stops as a control](report/output/figures/safety_risk.png)
@@ -551,6 +568,73 @@ Sources that encode clinical outcomes or literature co-mention (ChEMBL clinical 
 | Labels from sources of any date, including those dated in or after the entry year | registered | 118 of 791 | 11 of 171 | 1.58 (0.78–3.21) | 1.15 (0.55–2.39) | 1.79 (0.84–3.80) |
 | Outcome: the stop's own sources call the target not causal | descriptive | 21 of 789 | 3 of 171 | 0.88 (0.21–3.75) | 0.75 (0.09–5.96) | 0.98 (0.25–3.85) |
 | Outcome: the target never worked in this disease, whatever the failure mode | descriptive | 129 of 789 | 11 of 171 | 1.81 (0.89–3.69) | 1.37 (0.62–3.01) | 1.97 (0.93–4.17) |
+
+
+### How polygenicity was measured and tested
+
+**The unit.** Diseases with a US-developed Phase 2 entry in 2008–2019, outside oncology and infectious disease, on programme build 5945a7e4-1b7d-4f1c-9767-2c3424b76512: 531 diseases with 3,183 Phase 2 and 3 entries (2,321 Phase 2), of which 2,702 have a resolved primary target. The tertiles, their membership and every definition below were fixed in a dated comment on issue #147 (7181532783) before any outcome was joined.
+
+**The score.** For each disease, the GWAS Catalog (release 2026-11-19) study of the disease, or failing that of a subtype, with public harmonised summary statistics, at least 90% European ancestry, a case-control design and a genome-wide platform (over 200,000 SNPs), taking the largest by effective sample size (4 / (1/cases + 1/controls)). LDSC (the Python 3 port, 2.0.1) with the European LD scores on the HapMap3 SNPs gave the SNP heritability on the observed scale, converted to the liability scale with the study's case fraction and the disease's population prevalence: the GBD 2021 global prevalence of the matching cause (all ages, both sexes, the GBD 2023 round, mapped by hand as the WHO causes are), or where GBD has no cause, the Pan-UK Biobank European case fraction of the matching ICD-10 code. Independent loci are the lead SNPs after PLINK clumping of the same summary statistics at p < 5 × 10⁻⁸, r² < 0.1 within 1 Mb against the European 1000 Genomes panel cut to HapMap3 SNPs, with the extended MHC counted once. The score is loci per unit of liability-scale heritability; a disease scores only when the heritability estimate has z ≥ 4 and the liability-scale value lies in (0, 1]. Tertile cutpoints over the scored diseases: 164.37 and 796.29. A disease with no study, no summary statistics, a targeted array, no prevalence or an estimate below z = 4 has no score:
+
+| Reason | Diseases | Phase 2 entries |
+| :---- | :---- | :---- |
+| No GWAS study of the disease or a subtype | 195 | 347 |
+| No public harmonised summary statistics | 81 | 293 |
+| No study of at least 90% European ancestry | 7 | 29 |
+| Targeted genotyping array only | 13 | 19 |
+| No case-control study | 2 | 8 |
+| Heritability estimate below z = 4 | 94 | 345 |
+| Heritability at z = 4 or more but no genome-wide significant locus | 9 | 62 |
+| No population prevalence (GBD or Pan-UKB) | 16 | 51 |
+
+**The registered tests.** P1: among Phase 2 and 3 entries with a resolved primary target, a stop in the "target not causal" failure mode, top tertile against bottom, from a modified Poisson model adjusted as the target-origin test is (disease area, modality, entry period, novelty and phase), with errors clustered by disease. P2: among Phase 2 entries, advance to Phase 3 or approval, adjusted for area, modality, entry period, novelty and precedent. P3: on the same entries, the interaction of the top tertile with rare-variant or Mendelian genetic support (the highest germline tier) on advance, from one model holding both and their product, with the genetics ratio within each tertile reported beside it when the test is estimable; it is estimable only when each of the four cells holds at least 15 target sets and one event. Each p is one-sided in the registered direction (more not-causal stops, fewer advances, a smaller genetics benefit) and Holm's correction runs across the three. The middle tertile is reported, in no test.
+
+| Test | Ratio (95% CI) | p (one-sided) | p (Holm) | Reading | Top tertile: events of entries | Bottom tertile: events of entries |
+| :---- | :---- | :---- | :---- | :---- | :---- | :---- |
+| P1: more "target not causal" stops per entry (Phase 2 and 3) | 1.00 (0.64–1.55) | 0.508 | 1.000 | not replicated | 59 of 673 | 31 of 286 |
+| P2: lower Phase 2 advance (S4) | 1.33 (0.74–2.39) | 0.829 | 1.000 | not replicated | 89 of 483 | 33 of 208 |
+| P3: smaller benefit of human genetic support (interaction on S4) | not estimable |  |  | not estimable | 89 of 483 | 33 of 208 |
+
+| Group | Diseases | Phase 2 and 3 entries | Not-causal stops (share) | Phase 2 advance (share) | Entries without a resolved target |
+| :---- | :---- | :---- | :---- | :---- | :---- |
+| Top tertile (most polygenic) | 38 | 779 | 59 (8%) | 91 of 567 (16%) | 106 |
+| Middle tertile | 38 | 486 | 54 (11%) | 53 of 350 (15%) | 111 |
+| Bottom tertile | 38 | 339 | 31 (9%) | 35 of 250 (14%) | 53 |
+| No score | 417 | 1,579 | 158 (10%) | 208 of 1,154 (18%) | 211 |
+
+**The sensitivities, as amended on 2026-11-24.** GWAS size adds the study's log10 effective sample size (4 / (1/cases + 1/controls)) to the covariates and repeats P1–P3 with Holm within itself. Mendelian form splits all 531 unit diseases, the no-score group included, by whether a gene carries Orphanet, ClinGen, Genomics England or Gene2Phenotype evidence for the disease, a subtype or a disease at Lin ≥ 0.8 in the full Open Targets association file, with "no Mendelian form" in place of the top tertile, again P1–P3 with Holm within. The negative control is P1's model with the outcome a stop whose traced cause is a sponsor decision or operational, entries with a safety stop left out, reported two-sided outside any family; no association is expected, and one would point to confounding by disease area or sponsor interest. The continuous-score and concentration sensitivities registered on 2026-11-23 were dropped in that decision.
+
+| Sensitivity | Test | Ratio (95% CI) | p (one-sided) | p (Holm) | Reading | Exposed: events of entries | Reference: events of entries |
+| :---- | :---- | :---- | :---- | :---- | :---- | :---- | :---- |
+| GWAS size (effective N as a covariate) | P1 | 1.04 (0.56–1.95) | 0.449 | 1.000 | same direction, not confirmed | 59 of 673 | 31 of 286 |
+| GWAS size (effective N as a covariate) | P2 | 1.45 (0.60–3.51) | 0.793 | 1.000 | not replicated | 89 of 483 | 33 of 208 |
+| GWAS size (effective N as a covariate) | P3 | not estimable |  |  | not estimable | 89 of 483 | 33 of 208 |
+| Mendelian form (none against a form), all unit diseases | P1 | 1.18 (0.89–1.56) | 0.127 | 0.381 | same direction, not confirmed | 101 of 751 | 201 of 1,951 |
+| Mendelian form (none against a form), all unit diseases | P2 | 0.99 (0.72–1.34) | 0.467 | 0.934 | same direction, not confirmed | 95 of 545 | 262 of 1,403 |
+| Mendelian form (none against a form), all unit diseases | P3 | not estimable |  |  | not estimable | 95 of 545 | 262 of 1,403 |
+| Negative control: stops unrelated to the disease's biology, two-sided | P1 | 0.82 (0.55–1.22) | 0.328 |  | no association | 64 of 641 | 26 of 281 |
+
+**By disease area.**
+
+| Disease area (diseases / entries) | Top tertile | Middle tertile | Bottom tertile | No score |
+| :---- | :---- | :---- | :---- | :---- |
+| neurology | 4 / 144 | 4 / 34 | 5 / 60 | 72 / 286 |
+| autoimmune | 1 / 67 | 4 / 118 | 3 / 132 | 37 / 150 |
+| other | 9 / 145 | 8 / 115 | 7 / 15 | 56 / 182 |
+| ophthalmology | 3 / 28 | 4 / 69 | 1 / 1 | 46 / 186 |
+| psychiatry | 1 / 57 | 1 / 10 | 6 / 55 | 26 / 129 |
+| respiratory | 4 / 97 | 1 / 22 | 1 / 6 | 18 / 91 |
+| endocrine | 4 / 131 | 2 / 14 | 0 / 0 | 17 / 47 |
+| cardiovascular | 6 / 50 | 6 / 51 | 6 / 23 | 22 / 66 |
+| gastroenterology | 0 / 0 | 5 / 41 | 5 / 36 | 28 / 110 |
+| metabolic | 1 / 32 | 0 / 0 | 1 / 4 | 51 / 141 |
+| hematology | 1 / 2 | 1 / 1 | 2 / 5 | 28 / 134 |
+| allergy | 1 / 13 | 2 / 11 | 0 / 0 | 10 / 33 |
+| urology | 3 / 13 | 0 / 0 | 1 / 2 | 6 / 24 |
+
+**Descriptive checks, none registered.** Admitting heritability estimates at z ≥ 2 (148 diseases); diseases whose prevalence comes from GBD alone (135); the Catalog's genome-wide significant associations across all studies of the disease, merged within 500 kb, in place of the clumped loci (114); and the count of GWAS-linked genes per 10,000 cases from the Open Targets evidence as the exposure (310). Where O'Connor and colleagues (2019) published a model-based effective number of causal variants for a scored disease (5 diseases), its Spearman correlation with the score is -0.70.
+
+**Burden.** Of 2021 global DALYs (WHO Global Health Estimates), 37% fall in causes mapped to a profiled disease with a Mendelian form, 34% in causes mapped to a disease where a gene with rare-variant or Mendelian evidence is the primary target of a programme that reached Phase 2 or 3 or was approved, and 41% in either; of non-communicable DALYs, 51%, 53% and 59%. The flags cover 531 profiled diseases: 333 with a Mendelian form and 188 with such a drugged gene; WHO causes are mapped to MONDO by hand (`pipeline/data/who_ghe_cause_mondo.csv`), and a cause counts when any disease it maps to carries the flag.
 
 
 ### Can the evidence pick individual programs?

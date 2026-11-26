@@ -137,3 +137,29 @@ Melissa's answer, 2026-11-25 17:18 PST, issuecomment-7179634211: (1) yes, the fa
 - P3 cells (outcome columns dropped): bottom × support holds 12 target sets against the 15 required, so P3 is not estimable and Holm keeps m = 3 (your ruling today; the cell is small by construction, since the score's numerator is the locus count). Mendelian split: no form × support holds 5. Counts in `report/audits/polygenicity_p3_*_cells.json`.
 
 **Provenance:** genetic support from evidence-line build `37f24080-9f7a-47a7-8656-f287befabc6e`; tools per run in `preclin.ldsc_run`. K is a point prevalence, so h2_liab runs low for episodic diseases.
+
+## Readings — posted 2026-11-25 19:45 PST, issuecomment-7181992251
+
+**Readings for #147 (2026-11-25, Stephen; outcomes joined after the gate, issuecomment-7181532783).** Tables and figures come with the PR.
+
+**Registered tests (top against bottom tertile, one-sided in the registered direction, Holm m = 3)**
+
+| Test | Outcome | Top | Bottom | RR (95% CI) | One-sided p | Holm | Reading |
+|---|---|---|---|---|---|---|---|
+| P1 | not-causal stop, Phase 2 and 3 | 59 / 673 | 31 / 286 | 1.00 (0.64–1.55) | 0.51 | 1.00 | not replicated |
+| P2 | Phase 2 advance | 89 / 483 | 33 / 208 | 1.33 (0.74–2.39) | 0.83 | 1.00 | not replicated |
+| P3 | genetics × top on advance | 18 / 74 with support, 71 / 409 without | 1 / 15, 32 / 193 | not estimable | | | 12 target sets in bottom × support against 15 |
+
+- P2's registered direction was fewer advances in the top tertile; the point estimate runs the other way.
+- P3 as you ruled: not estimable, Holm keeps m = 3.
+
+**Sensitivities**
+- GWAS size (+ log10 n_eff): P1 RR 1.04, same direction, not confirmed; P2 RR 1.45, not replicated; P3 not estimable.
+- Mendelian form (no form against form, all 531): P1 RR 1.18 (0.89–1.56), one-sided p 0.13, Holm 0.38, same direction, not confirmed; P2 RR 0.99, same direction, not confirmed; P3 not estimable.
+- Negative control (sponsor or operational stops, two-sided): RR 0.82 (0.55–1.22), p 0.33, no association.
+
+**Rates by tertile** (not-causal stop over Phase 2 and 3 entries; advance over Phase 2 entries): bottom 9.1% and 14.0%; middle 11.1% and 15.1%; top 7.6% and 16.0%; no-score 10.0% and 18.0%.
+
+**Burden descriptive (item 8)**: of 2021 noncommunicable DALYs, 51% fall in causes mapped to a disease with a Mendelian form, 53% to one with a drugged large-effect gene, 59% to either (333 and 188 of the 531 diseases).
+
+Neither registered hypothesis replicates. The power table put the mid effects at 0.3 to 0.5, and both point estimates sit at or across the null. The PR follows with tables, figures and narrative.
