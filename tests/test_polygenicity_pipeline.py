@@ -147,3 +147,13 @@ def test_panukb_h2_keeps_european_icd10_rows_that_pass_qc(tmp_path, monkeypatch)
     monkeypatch.setattr(polygenicity, "PANUKB", str(tmp_path))
     h = polygenicity.panukb_h2()
     assert h.values.tolist() == [["M06", 0.12, 6.5]]
+
+
+def test_excluded_runs_skips_studies_with_too_few_merged_snps_or_no_usable_effect():
+    """A run that merged fewer than MIN_PLATFORM_SNPS SNPs (a targeted array the Catalog lists as genome-wide) or that
+    found no usable autosomal effect (an X-only study, a p-value-only file) excludes its study so the next one is chosen."""
+    from pipeline import polygenicity
+    runs = pd.DataFrame({"gcst": ["GCST003044", "GCST90444373", "GCST90027158", "GCST000001"],
+                         "n_snps": [48_002, None, 1_168_849, None],
+                         "status": ["ok", "no_effect", "ok", "fetch_failed"]})
+    assert polygenicity.excluded_runs(runs) == {"GCST003044", "GCST90444373"}

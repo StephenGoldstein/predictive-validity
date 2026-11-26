@@ -108,10 +108,16 @@ def exome_studies(catalog: pd.DataFrame) -> set[str]:
     return set(catalog["STUDY ACCESSION"][tech.str.contains("exome") & ~tech.str.contains("genome-wide sequencing")])
 
 
+def excluded_runs(runs: pd.DataFrame) -> set[str]:
+    """Studies whose run (gcst, n_snps, status) disqualifies them: fewer than MIN_PLATFORM_SNPS merged SNPs (a targeted
+    array the Catalog lists as genome-wide), or no usable autosomal effect (an X-only study, a p-value-only file)."""
+    few = pd.to_numeric(runs.n_snps, errors="coerce") < MIN_PLATFORM_SNPS
+    return set(runs.gcst[few.fillna(False) | runs.status.eq("no_effect")])
+
+
 def excluded_studies() -> set[str]:
-    """Studies choose_study must skip: exome-wide by technology, or already run with too few merged SNPs."""
-    runs = frame.query(f"SELECT gcst FROM preclin.ldsc_run WHERE n_snps IS NOT NULL AND n_snps < {MIN_PLATFORM_SNPS}")
-    return exome_studies(read_studies()) | set(runs.gcst)
+    """Studies choose_study must skip: exome-wide by technology, or already run and disqualified (excluded_runs)."""
+    return exome_studies(read_studies()) | excluded_runs(frame.query("SELECT gcst, n_snps, status FROM preclin.ldsc_run"))
 
 
 def choose_study(studies: pd.DataFrame, mondo_id: str, members: set[str],
