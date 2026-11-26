@@ -195,12 +195,13 @@ def daly_share(who: pd.DataFrame, m: pd.DataFrame, flags: pd.DataFrame) -> dict:
         shares = {}
         for flag in ("mendelian_form", "drugged_large_effect", "either"):
             hit = rows.code.map(lambda c: (cause_flags.get(c, {}).get("mendelian_form", False) or cause_flags.get(c, {}).get("drugged_large_effect", False))
-                                if flag == "either" else cause_flags.get(c, {}).get(flag, False))
+                                if flag == "either" else cause_flags.get(c, {}).get(flag, False)).astype(bool)
             shares[flag] = float(rows.dalys_2021[hit].sum() / total) if total else None
         shares["total"] = total
-        shares["largest"] = rows[rows.code.map(lambda c: cause_flags.get(c, {}).get("mendelian_form", False)
-                                               or cause_flags.get(c, {}).get("drugged_large_effect", False))] \
-            .sort_values("dalys_2021", ascending=False).head(10)[["code", "cause", "dalys_2021"]].to_dict("records")
+        flagged = rows.code.map(lambda c: cause_flags.get(c, {}).get("mendelian_form", False)
+                                or cause_flags.get(c, {}).get("drugged_large_effect", False)).astype(bool)
+        shares["largest"] = rows[flagged].sort_values("dalys_2021", ascending=False).head(10)[["code", "cause", "dalys_2021"]] \
+            .to_dict("records")
         out[name] = shares
     return out
 
@@ -220,7 +221,7 @@ def approved_targets() -> pd.DataFrame:
     return frame.query("""SELECT DISTINCT t.ensembl_id, p.mondo_id
                           FROM preclin.dev_program p JOIN preclin.dev_program_approval ap USING (program_id)
                           JOIN preclin.moiety_target mt USING (moiety_id) JOIN public.targets t ON t.id = mt.target_id
-                          WHERE ap.approved AND mt.is_primary AND p.mondo_id IS NOT NULL AND t.ensembl_id IS NOT NULL""")
+                          WHERE ap.approved = 'yes' AND mt.is_primary AND p.mondo_id IS NOT NULL AND t.ensembl_id IS NOT NULL""")
 
 
 def drugged_large_effect(prof: pd.DataFrame, drugged: dict[str, set[str]] | None = None) -> pd.DataFrame:

@@ -1,3 +1,4 @@
+import pytest
 """Polygenicity (#147): the share of 2021 WHO DALYs in diseases with a Mendelian form or a drugged large-effect gene."""
 import importlib.util
 import os
@@ -54,3 +55,32 @@ def test_drugged_sets_join_entered_and_approved_targets():
     td = pd.DataFrame({"ensembl_id": ["E1", "E2"], "mondo_id": ["M1", "M1"]})
     approved = pd.DataFrame({"ensembl_id": ["E3"], "mondo_id": ["M2"]})
     assert drugged_sets(td, approved) == {"M1": {"E1", "E2"}, "M2": {"E3"}}
+
+
+@pytest.mark.db
+def test_approved_targets_reads_the_yes_judgement_of_the_text_column():
+    """preclin.dev_program_approval.approved is text (yes / no / uncertain), not boolean; the query takes 'yes',
+    as pipeline.target_history and pipeline.attribution do."""
+    from report.polygenicity import approved_targets
+    a = approved_targets()
+    assert list(a.columns) == ["ensembl_id", "mondo_id"] and len(a) > 0 and not a.duplicated().any()
+
+
+def test_who_file_depth_separates_parents_from_leaf_causes():
+    """The committed WHO file carries the GHE hierarchy in depth (All Causes 1, the three groups 2, their
+    sub-groups 3, causes 4 and 5): noncommunicable diseases (600) and malignant neoplasms (610) are parents,
+    road injury (1530) is a leaf. A flat depth column made every cause a leaf and emptied the NCD subtree."""
+    who = pd.read_csv(WHO)
+    lf = set(leaves(who).code)
+    assert who.depth.max() >= 4 and 600 not in lf and 610 not in lf and 1530 in lf
+
+
+def test_daly_share_with_a_group_that_has_no_leaf_rows_reports_zero_shares():
+    """A denominator group with no leaf causes under it yields zero shares and no largest causes, not a crash
+    (an empty boolean mask must still select rows, not columns)."""
+    who = pd.DataFrame({"code": [0, 10, 20, 600], "depth": [1, 2, 3, 2],
+                        "cause": ["All Causes", "Communicable", "A", "Noncommunicable diseases"], "dalys_2021": [100, 60, 60, 40]})
+    m = pd.DataFrame({"code": [20], "relation": ["exact"], "mondo_id": ["M1"]})
+    flags = pd.DataFrame({"mondo_id": ["M1"], "mendelian_form": [True], "drugged_large_effect": [False]})
+    s = daly_share(who, m, flags)
+    assert s["ncd"]["either"] == 0.0 and s["ncd"]["largest"] == [] and s["all"]["mendelian_form"] == 0.6
