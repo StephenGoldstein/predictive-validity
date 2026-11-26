@@ -42,7 +42,7 @@ Our pick: yes on 1, keep 15 on 2.
 
 Melissa's answer, 2026-11-25 17:18 PST, issuecomment-7179634211: (1) yes, the fallback is part of the selection rule for every disease alike; (2) keep 15, report P3 not estimable with the reason (the bottom × support cell is small by construction: fewest loci, fewest supported targets), and post the Mendelian-form split's four P3 cell counts with the gate.
 
-## Dated definitions (the gate) — to post after Melissa's answers
+## Dated definitions (the gate), full method — the short form below was posted 2026-11-25 19:14 PST, issuecomment-7181532783
 
 **Dated definitions for #147 (2026-11-25, Stephen; before any outcome is joined).** Everything below is fixed as of this comment. Tertile membership: `report/audits/polygenicity_tertiles.csv` (commit 5fb4a30).
 
@@ -93,3 +93,47 @@ Melissa's answer, 2026-11-25 17:18 PST, issuecomment-7179634211: (1) yes, the fa
 **Provenance:** genetic support from evidence-line build `37f24080-9f7a-47a7-8656-f287befabc6e` (2026-11-24 23:03 UTC, commit ee87412); tools and references per run in `preclin.ldsc_run`.
 
 **Caveats fixed now:** K is a point prevalence, not lifetime risk, so h2_liab runs low for episodic diseases; the Pan-UKB fallback is a cohort case fraction.
+
+## Gate comment as posted — 2026-11-25 19:14 PST, issuecomment-7181532783
+
+**Dated definitions for #147 (2026-11-25, Stephen; before any outcome is joined).** Fixed as of this comment. Full method and tertile membership: `report/audits/polygenicity_definitions.md` and `report/audits/polygenicity_tertiles.csv` (commit a23538f).
+
+**Unit**
+- Build `5945a7e4-1b7d-4f1c-9767-2c3424b76512`.
+- 531 non-oncology, non-infectious diseases with a US Phase 2 entry in 2008–2019; 2,321 Phase 2 entries.
+
+**Score (source A, as registered)**
+- Study: GWAS Catalog (2026-11-19) harmonised summary statistics, ≥ 90% European, cases and controls reported, platform > 200,000 SNPs, never exome-wide; largest n_eff wins.
+- Fallback (your ruling today): a run that merges < 200,000 HapMap3 SNPs or has no usable autosomal effect is skipped for the next eligible study. Alzheimer → GCST90027158. Crohn → GCST90473822 (GCST003044 is Immunochip, 48,002 merged SNPs). Juvenile idiopathic arthritis stays no-score.
+- h2: LDSC 2.0.1, EUR LD scores, HapMap3 SNPs; floor z ≥ 4; liability scale with K from GBD 2021, else the Pan-UKB case fraction (45 scored diseases through the three-character ICD-10 parent).
+- Loci: PLINK clumping at p < 5 × 10⁻⁸, r² < 0.1 within 1,000 kb, 1000 Genomes EUR; the extended MHC counts once.
+- Score = loci / h2_liab, kept when 0 < h2_liab ≤ 1; zero loci is no-score.
+- Scored: 114 diseases, 1,167 entries. No-score 417: no_study 195, low_z 94, no_sumstats 81, no_k 16, targeted_array 13, zero_loci 9, not_european 7, no_case_control 2.
+
+**Tertiles**
+- Cutpoints 164.37 and 796.29 (33.3rd and 66.7th percentiles; a tie goes down, none occurs).
+- Bottom 38 diseases (250 entries), middle 38 (350), top 38 (567).
+
+**Tests**
+- P1: not-causal stop, Phase 2 and 3, COVARS_23. P2: Phase 2 advance, COVARS. P3: top × genetic support on S4, estimable only when every cell holds ≥ 15 target sets and an event.
+- Top vs bottom, middle reported; resolved primary target only; one-sided in the registered direction, two-sided beside; errors clustered by disease; Holm m = 3, kept when a test is not estimable.
+
+**Sensitivities (your 2026-11-24 amendment)**
+- GWAS size: + log10 n_eff.
+- Mendelian form (Orphanet, ClinGen, Genomics England, Gene2Phenotype in Open Targets 26.09): 333 of 531 have one; "no form" replaces the top tertile.
+- Negative control: P1's model, outcome a sponsor_decision or operational stop, safety stops out of the denominator; one two-sided test outside the family.
+- Dropped: continuous score, concentration. Descriptives (item 8) as amended, no Holm family.
+
+**Pre-join checks (no outcome read by tertile)**
+- Within-area variance: 79% of the log10 score's variance lies within disease area.
+- Power, 200 replicates, outcomes drawn at the rate pooled over the top and bottom tertiles together:
+
+| Test | RR | Power (Holm) |
+|---|---|---|
+| P1 not-causal stop | 1.25 / 1.5 / 2.0 | 0.30 (0.20) / 0.53 (0.36) / 0.86 (0.71) |
+| P2 Phase 2 advance | 0.8 / 0.67 / 0.5 | 0.28 (0.18) / 0.50 (0.38) / 0.81 (0.64) |
+| P3 genetics × top | any | not estimable |
+
+- P3 cells (outcome columns dropped): bottom × support holds 12 target sets against the 15 required, so P3 is not estimable and Holm keeps m = 3 (your ruling today; the cell is small by construction, since the score's numerator is the locus count). Mendelian split: no form × support holds 5. Counts in `report/audits/polygenicity_p3_*_cells.json`.
+
+**Provenance:** genetic support from evidence-line build `37f24080-9f7a-47a7-8656-f287befabc6e`; tools per run in `preclin.ldsc_run`. K is a point prevalence, so h2_liab runs low for episodic diseases.

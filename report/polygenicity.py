@@ -51,9 +51,9 @@ AUDITS = os.path.join(frame.REPO, "report", "audits")
 EXCLUDED_AREAS = ("oncology", "infectious_disease")
 LEVELS = ("bottom", "middle", "top")
 # Fixed before any outcome was joined (the dated comment on #147 named in polygenicity_definitions.md); None until then.
-CUTPOINTS: tuple[float, float] | None = None       # score: 33.3rd and 66.7th percentiles over scored unit diseases
-BUILD_ID: str | None = None                        # preclin.dev_program_build.build_id the unit was counted on
-COMMENT_ID: str | None = None                      # the dated comment
+CUTPOINTS: tuple[float, float] | None = (164.37305314732993, 796.2935736638328)      # score: 33.3rd and 66.7th percentiles over scored unit diseases
+BUILD_ID: str | None = "5945a7e4-1b7d-4f1c-9767-2c3424b76512"                       # preclin.dev_program_build.build_id the unit was counted on
+COMMENT_ID: str | None = "7181532783"                     # the dated comment
 
 
 def floats(t: pd.DataFrame) -> pd.DataFrame:
