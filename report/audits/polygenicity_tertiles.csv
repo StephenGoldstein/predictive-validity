@@ -62,7 +62,7 @@ MONDO:0002268,dyspepsia,gastroenterology,3,no_k,GCST90473790,exact,18905.0,43953
 MONDO:0002280,anemia,hematology,2,ok,GCST90475788,exact,83995.0,326225.0,0.0326,13.583333333333334,0.0346014919233064,panukb,D64,True,0.0381265454300952,31.0,813.0817951193159,top,True
 MONDO:0002413,glycogen storage disease I,metabolic,1,no_study,,,,,,,,none,,False,,,,none,True
 MONDO:0002474,primary hyperoxaluria,metabolic,2,no_study,,,,,,,,none,,False,,,,none,True
-MONDO:0002492,acute kidney injury,other,8,ok,GCST90476119,exact,42394.0,382809.0,0.0265,13.947368421052632,0.0183743885706404,panukb,N17,False,0.0473204831769642,8.0,169.05998127877172,bottom,True
+MONDO:0002492,acute kidney injury,other,8,ok,GCST90476119,exact,42394.0,382809.0,0.0265,13.947368421052632,0.0183743885706404,panukb,N17,False,0.0473204831769642,8.0,169.05998127877172,middle,True
 MONDO:0002771,pulmonary fibrosis,respiratory,2,low_z,GCST90044079,exact,363.0,455985.0,0.0018,2.0,0.0005679677563349,gbd,,False,0.1825067481622732,0.0,,none,True
 MONDO:0002959,radiculopathy,neurology,3,targeted_array,,,,,,,0.022726029710057,panukb,M54,True,,,,none,False
 MONDO:0003004,macular degeneration,ophthalmology,6,low_z,GCST90475851,exact,27144.0,412580.0,0.0359,2.7196969696969697,0.0114474319372412,panukb,H35,True,0.0883035781161456,69.0,,none,True
@@ -95,7 +95,7 @@ MONDO:0004891,hyperopia,ophthalmology,1,ok,GCST90475882,exact,73817.0,320870.0,0
 MONDO:0004907,alopecia,other,2,low_z,GCST90473958,exact,2920.0,455520.0,0.0035,3.5,0.0002615740575605,panukb,L65,True,0.0399032526111684,1.0,,none,True
 MONDO:0004933,hypoplastic left heart syndrome,cardiovascular,1,no_study,,,,,,,0.0020022220016941,gbd,,False,,,,none,True
 MONDO:0004946,hypoglycemia,endocrine,2,no_k,GCST90477329,exact,5578.0,436416.0,0.0053,5.3,,none,,False,,2.0,,none,True
-MONDO:0004975,Alzheimer disease,neurology,48,no_effect,GCST90444373,exact,138558.0,1013726.0,,,0.0070422125979522,gbd,,False,,,,none,True
+MONDO:0004975,Alzheimer disease,neurology,48,ok,GCST90027158,exact,85934.0,401577.0,0.0214,10.19047619047619,0.0070422125979522,gbd,,False,0.0187772358002931,79.0,4207.222023529509,top,True
 MONDO:0004976,amyotrophic lateral sclerosis,neurology,16,ok,GCST90027163,exact,29612.0,122656.0,0.0359,8.975,3.48266430002e-05,gbd,,False,0.012965002228821,10.0,771.3072333894465,middle,True
 MONDO:0004979,asthma,respiratory,43,ok,GCST90399686,exact,121940.0,1254131.0,0.0247,17.642857142857142,0.0438280197355667,gbd,,False,0.0623791320741278,190.0,3045.8904072954188,top,True
 MONDO:0004980,atopic eczema,other,51,ok,GCST90503109,exact,42963.0,408472.0,0.0284,10.51851851851852,0.0319836797049214,gbd,,False,0.0614182749314657,106.0,1725.8706812960993,top,True
@@ -108,7 +108,7 @@ MONDO:0005002,chronic obstructive pulmonary disease,respiratory,27,ok,GCST904760
 MONDO:0005003,chronic pancreatitis,gastroenterology,2,low_z,GCST90476108,exact,2972.0,446161.0,0.0035,2.916666666666667,0.0007565545861649,gbd,,False,0.0448337400282935,2.0,,none,True
 MONDO:0005009,congestive heart failure,cardiovascular,2,ok,GCST90475981,exact,58749.0,370923.0,0.0454,18.916666666666668,0.0028535351733879,panukb,I27,True,0.0407151504000775,50.0,1228.04409436505,top,True
 MONDO:0005010,coronary artery disorder,cardiovascular,9,ok,GCST90837195,exact,55251.0,402261.0,0.0458,17.615384615384617,0.0287497912369245,gbd,,False,0.0779653578244184,75.0,961.9656998035396,top,False
-MONDO:0005011,Crohn disease,autoimmune,27,no_effect,GCST000879,exact,6333.0,15056.0,,,0.00016769997354,gbd,,False,,,,none,True
+MONDO:0005011,Crohn disease,autoimmune,27,ok,GCST90473822,exact,3192.0,455248.0,0.0059,4.916666666666667,0.00016769997354,gbd,,False,0.0580648169855332,9.0,154.99919688444612,bottom,True
 MONDO:0005015,diabetes mellitus,endocrine,3,ok,GCST90475658,exact,154958.0,276347.0,0.1955,20.578947368421055,0.053822429262052,panukb,E11,False,0.1841845693906869,920.0,4994.989553378507,top,True
 MONDO:0005016,diabetic kidney disease,other,17,low_z,GCST90435706,exact,199.0,388756.0,0.0013,1.1818181818181817,0.0189604481609884,gbd,,False,0.4108173503542591,0.0,,none,True
 MONDO:0005021,dilated cardiomyopathy,cardiovascular,3,low_z,GCST90296097,exact,1303.0,5281.0,0.1568,2.2528735632183907,0.1050457635703432,panukb,E78,True,0.2638709262779247,1.0,,none,True
@@ -336,7 +336,7 @@ MONDO:0010811,benign prostatic hyperplasia,urology,5,ok,GCST90476153,exact,13892
 MONDO:0011122,obesity disorder,metabolic,18,no_k,GCST90475762,exact,169600.0,244254.0,0.1451,21.65671641791045,,none,,False,,429.0,,none,True
 MONDO:0011382,sickle cell disease,hematology,14,no_sumstats,,,,,,,0.0009548837633032,gbd,,False,,,,none,True
 MONDO:0011385,intervertebral disk degenerative disorder,other,2,no_k,GCST90476238,exact,58556.0,352595.0,0.0331,16.549999999999997,,none,,False,,13.0,,none,True
-MONDO:0011429,juvenile idiopathic arthritis,autoimmune,1,no_effect,GCST90010715,exact,3305.0,9196.0,,,,none,,False,,,,none,True
+MONDO:0011429,juvenile idiopathic arthritis,autoimmune,1,targeted_array,,,,,,,,none,,False,,,,none,True
 MONDO:0011438,acne,other,28,ok,GCST90245818,exact,34422.0,364991.0,0.0203,9.666666666666666,0.0065412948114204,gbd,,False,0.0323127785038965,25.0,773.6877222423099,middle,False
 MONDO:0011603,GNE myopathy,neurology,1,no_study,,,,,,,,none,,False,,,,none,True
 MONDO:0011662,pathological gambling,psychiatry,1,no_sumstats,,,,,,,,none,,False,,,,none,False
