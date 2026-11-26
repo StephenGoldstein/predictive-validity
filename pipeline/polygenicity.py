@@ -36,6 +36,7 @@ gbd_citation.txt). IHME publishes it under the free-of-charge non-commercial use
 from __future__ import annotations
 
 import argparse
+import re
 import hashlib
 import os
 import sys
@@ -150,22 +151,28 @@ def liability_h2(h2_obs: float, p: float, k: float) -> float:
     return h2_obs * k ** 2 * (1 - k) ** 2 / (p * (1 - p) * norm.pdf(t) ** 2)
 
 
-def k_for(mondo_id: str, gbd_map: dict, gbd: dict, icd_codes: set[str], panukb: pd.DataFrame) \
-        -> tuple[float | None, str, str | None, bool]:
+def k_for(mondo_id: str, gbd_map: dict, gbd: dict, icd_codes: set[str], panukb: pd.DataFrame,
+          descendant_codes: set[str] = frozenset()) -> tuple[float | None, str, str | None, bool]:
     """(K, source, Pan-UKB code, via parent): the GBD cause's rate when the disease maps exactly or to a broader cause
-    and K < 0.5; else the Pan-UKB European case fraction of the disease's ICD-10 code, or the three-character parent
-    of one of its codes, with most cases (at least MIN_UKB_CASES); else none."""
+    and K < 0.5; else the Pan-UKB European case fraction by tiers: the disease's own ICD-10 codes, their three-character
+    parents, then its MONDO descendants' codes, then their parents; within a tier the code with most cases among those
+    with at least MIN_UKB_CASES; else none. (Until the review of 2026-11-25 all four tiers were one pool, which took
+    an unrelated descendant's code for about half of the scored diseases with a Pan-UKB K; the registered profile was
+    built that way and stands as fixed, with this rule for the corrected-K sensitivity.)"""
     relation, cause = gbd_map.get(mondo_id, ("none", None))
     if relation in ("exact", "broader") and cause in gbd:
         k = gbd[cause] / 1e5
         if 0 < k < K_MAX:
             return k, "gbd", None, False
-    rows = panukb[panukb.phenocode.isin(with_parents(icd_codes))]
-    if len(rows):
+    own, desc = set(icd_codes), set(descendant_codes)
+    for tier in (own, with_parents(own) - own, desc, with_parents(desc) - desc):
+        rows = panukb[panukb.phenocode.isin(tier) & (panukb.n_cases_EUR >= MIN_UKB_CASES)]
+        if not len(rows):
+            continue
         r = rows.sort_values("n_cases_EUR", ascending=False).iloc[0]
         k = float(r.n_cases_EUR / (r.n_cases_EUR + r.n_controls_EUR))
-        if r.n_cases_EUR >= MIN_UKB_CASES and 0 < k < K_MAX:
-            return k, "panukb", str(r.phenocode), str(r.phenocode) not in icd_codes
+        if 0 < k < K_MAX:
+            return k, "panukb", str(r.phenocode), str(r.phenocode) not in own
     return None, "none", None, False
 
 
@@ -220,9 +227,23 @@ def panukb_h2() -> pd.DataFrame:
                          "z": h["estimates.final.h2_z"]})
 
 
-def icd_codes(members: set[str], xrefs: pd.DataFrame) -> set[str]:
-    """The disease's own ICD-10 codes (its members' MONDO cross-references), without parents."""
-    return set(xrefs[xrefs.term_id.isin(members)].code)
+ICD_RANGE = re.compile(r"^([A-Z])(\d{2})-([A-Z])(\d{2})$")
+
+
+def expand_icd(code: str) -> set[str]:
+    """A cross-reference code as the codes it names: a range like I10-I16 lists every three-character code in it; a
+    single code (three or four characters, the dot already removed) stays as it is."""
+    m = ICD_RANGE.match(code)
+    if not m or m.group(1) != m.group(3):
+        return {code}
+    return {f"{m.group(1)}{i:02d}" for i in range(int(m.group(2)), int(m.group(4)) + 1)}
+
+
+def own_and_descendant_codes(mondo_id: str, members: set[str], xrefs: pd.DataFrame) -> tuple[set[str], set[str]]:
+    """The disease's own ICD-10 codes and, kept apart, those of its MONDO descendants (ranges expanded)."""
+    own = {c for code in xrefs[xrefs.term_id.eq(mondo_id)].code for c in expand_icd(code)}
+    desc = {c for code in xrefs[xrefs.term_id.isin(members - {mondo_id})].code for c in expand_icd(code)} - own
+    return own, desc
 
 
 GENETIC_SOURCES = tuple(k for k, v in FAMILY.items() if v in ("gwas", "burden", "mendelian"))
@@ -359,12 +380,15 @@ def build(_args) -> None:
         mem = members(d.mondo_id, desc)
         row = {"mondo_id": d.mondo_id, "ldsc_status": d.ldsc_status}
         row["gwas_studies"], row["gws_associations"], row["loci_catalog"] = loci_catalog(assoc, mem, lookup)
-        codes = icd_codes(mem, xrefs)
-        k, source, code, via_parent = k_for(d.mondo_id, gmap, rates, codes, ukb)
+        own, desc_codes = own_and_descendant_codes(d.mondo_id, mem, xrefs)
+        k, source, code, via_parent = k_for(d.mondo_id, gmap, rates, own, ukb, desc_codes)
         row.update({"k": k, "k_source": source, "k_code": code, "k_via_parent": via_parent})
         gwas, mend, form = gene_counts(d.mondo_id, mondo, mem, evidence)
         row.update({"gwas_genes": gwas, "mendelian_genes": mend, "mendelian_form": form, "me_log10": me_map.get(d.mondo_id)})
-        h = ukb_h2[ukb_h2.phenocode.isin(with_parents(codes))].sort_values("z", ascending=False)
+        h = ukb_h2[ukb_h2.phenocode.isin(with_parents(own))]
+        if not len(h):
+            h = ukb_h2[ukb_h2.phenocode.isin(with_parents(desc_codes))]
+        h = h.sort_values("z", ascending=False)
         row.update({"panukb_h2_liab": float(h.h2_liab.iloc[0]) if len(h) else None, "panukb_h2_z": float(h.z.iloc[0]) if len(h) else None})
         cases = None
         if d.gcst is not None and d.gcst in studies.index:
@@ -431,10 +455,27 @@ def check_unit(_args) -> None:
         sys.exit(1)
 
 
+def drugged(_args) -> None:
+    """Fill preclin.disease_polygenicity.drugged_large_effect (migration 172) for every profiled disease: a gene with
+    rare-variant or Mendelian evidence for the disease is the primary target of a programme that entered Phase 2 or 3
+    there or was approved for it. Reads the Open Targets direct-association download once; the report then needs
+    only the table."""
+    from report.polygenicity import drugged_large_effect  # noqa: PLC0415
+    prof = frame.query("SELECT mondo_id FROM preclin.disease_polygenicity ORDER BY mondo_id")
+    flags = drugged_large_effect(prof)
+    with llm.connect() as conn, conn.cursor() as cur:
+        for r in flags.itertuples():
+            cur.execute("UPDATE preclin.disease_polygenicity SET drugged_large_effect = %s WHERE mondo_id = %s",
+                        (bool(r.drugged_large_effect), r.mondo_id))
+        conn.commit()
+    print(f"drugged_large_effect: {int(flags.drugged_large_effect.sum())} of {len(flags)} diseases")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name, fn in (("load-gbd", load_gbd), ("choose", choose), ("build", build), ("counts", counts), ("check-unit", check_unit)):
+    for name, fn in (("load-gbd", load_gbd), ("choose", choose), ("build", build), ("counts", counts), ("check-unit", check_unit),
+                     ("drugged", drugged)):
         sub.add_parser(name).set_defaults(fn=fn)
     args = parser.parse_args()
     args.fn(args)

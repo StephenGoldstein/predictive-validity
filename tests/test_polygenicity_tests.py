@@ -106,7 +106,7 @@ def test_descriptives_always_report_each_group_size(monkeypatch):
     ids = sorted(d.mondo_id.unique())
     u = pd.DataFrame({"mondo_id": ids, "label": ids, "scored": True, "entries": 10, "ldsc_status": "ok", "h2_z": 1.0,
                       "h2_liab": 0.2, "loci": 5, "loci_catalog": None, "gwas_genes_per_10k_cases": None, "me_log10": None,
-                      "score": 25.0})
+                      "score": 25.0, "n_eff": 1e4, "panukb_h2_liab": None})
     out = descriptives(d, u)
     assert out["z_at_least_2"]["diseases"] == 0 and out["z_at_least_2"]["tests"] == {}
     assert out["gbd_k_only"]["diseases"] == 0 and out["catalog_loci"]["diseases"] == 0
@@ -117,3 +117,54 @@ def test_holm_keeps_the_registered_family_of_three():
     from report.polygenicity_tests import holm_family
     adj = holm_family({"P1": 0.01, "P2": 0.04, "P3": None})
     assert adj["P1"] == 0.03 and adj["P2"] == 0.08 and "P3" not in adj
+
+
+def test_rates_count_entries_with_a_resolved_target():
+    """The figure and the tertile table sit on the tests' denominator, entries with a resolved primary target; the
+    entries without one are counted beside the rate, not inside it."""
+    from report.polygenicity_tests import rates
+    d = synthetic()
+    d.loc[d.index[:60], "has_target_disease"] = False
+    r = rates(d, "tertile").set_index("tertile")
+    top = d[d.tertile.eq("top")]
+    res = top[top.has_target_disease]
+    assert r.loc["top", "entries"] == len(res) and r.loc["top", "without_target"] == int((~top.has_target_disease).sum())
+    assert r.loc["top", "not_causal"] == int(res.mode_not_causal.sum()) and r.loc["top", "phase2_entries"] == int(res.phase.eq(2).sum())
+
+
+def test_p3_reports_the_genetics_ratio_within_each_tertile_whose_own_cells_allow_it():
+    """When the interaction is not estimable because one tertile's cell is short of target sets, the genetics ratio
+    is still fit within the other tertile, and the short one is marked not estimable."""
+    d = synthetic()
+    d.loc[d[(d.tertile == "bottom") & (d.genetics == 1)].index, "target"] = "t1"
+    r = p3(d)
+    assert r["estimable"] is False and "rr" not in r
+    assert "rr" in r["genetics_within"]["top"] and r["genetics_within"]["bottom"]["estimable"] is False
+
+
+def test_gwas_size_check_reports_spearman_and_median_n_eff_by_tertile():
+    from report.polygenicity_tests import gwas_size_check
+    u = pd.DataFrame({"mondo_id": list("abcdef"), "scored": True, "score": [1, 2, 3, 4, 5, 6], "n_eff": [10, 20, 30, 40, 50, 60]})
+    m = pd.DataFrame({"mondo_id": list("abcdef"), "tertile": ["bottom"] * 2 + ["middle"] * 2 + ["top"] * 2})
+    r = gwas_size_check(u, m)
+    assert r["n"] == 6 and abs(r["spearman"] - 1.0) < 1e-9 and r["median_n_eff"] == {"bottom": 15.0, "middle": 35.0, "top": 55.0}
+
+
+def test_panukb_check_compares_our_liability_h2_with_pan_ukb():
+    from report.polygenicity_tests import panukb_check
+    u = pd.DataFrame({"mondo_id": list("abcd"), "scored": True, "h2_liab": [0.1, 0.2, 0.3, 0.4], "panukb_h2_liab": [0.4, 0.3, 0.2, None]})
+    r = panukb_check(u)
+    assert r["n"] == 3 and abs(r["spearman"] + 1.0) < 1e-9
+
+
+def test_descriptives_count_gbd_k_diseases_among_the_scored_only(monkeypatch):
+    from report.polygenicity_tests import descriptives
+    monkeypatch.setattr("report.polygenicity_tests.engaged_modes", lambda: pd.DataFrame({"key": [], "not_causal_basis": []}))
+    d = synthetic().assign(k_source="gbd", not_causal_basis="history")
+    ids = sorted(d.mondo_id.unique())
+    d.loc[d.mondo_id.isin(ids[:20]), "scored"] = False
+    u = pd.DataFrame({"mondo_id": ids, "label": ids, "scored": [i >= 20 for i in range(len(ids))], "entries": 10, "ldsc_status": "ok",
+                      "h2_z": 1.0, "h2_liab": 0.2, "loci": 5, "loci_catalog": None, "gwas_genes_per_10k_cases": None,
+                      "me_log10": None, "score": 25.0, "n_eff": 1e4, "panukb_h2_liab": None})
+    out = descriptives(d, u)
+    assert out["gbd_k_only"]["diseases"] == len(ids) - 20 and "gwas_size" in out and "panukb" in out

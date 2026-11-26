@@ -676,6 +676,28 @@ NO_SCORE_REASONS = {"no_study": "No GWAS study of the disease or a subtype", "no
                     "out_of_bounds": "Liability-scale heritability outside (0, 1]"}
 
 
+POLYGENICITY_CHECKS = {"z_at_least_2": "Heritability admitted at z ≥ 2 (tertiles recomputed)",
+                       "gbd_k_only": "Scored diseases with a GBD prevalence only",
+                       "catalog_loci": "The Catalog's associations merged within 500 kb in place of the clumped loci",
+                       "gwas_genes": "GWAS-linked genes per 10,000 cases as the exposure (tertiles recomputed)"}
+
+
+def polygenicity_descriptives_table() -> str:
+    """The descriptive checks, none registered: diseases, and the P1-P3 ratio and reading of each (numbers.json
+    descriptives); a check with too few diseases is 'not run'."""
+    n = json.load(open(os.path.join(OUT, "polygenicity", "numbers.json")))["descriptives"]
+
+    def cell(t):
+        if not t:
+            return "not run"
+        if "rr" not in t:
+            return t.get("reading", "not estimable")
+        return f"{t['rr']:.2f} ({t['lo']:.2f}–{t['hi']:.2f}), {t['reading']}"
+    rows = [[name, f"{int(n[k]['diseases']):,}"] + [cell(n[k].get("tests", {}).get(p)) for p in ("P1", "P2", "P3")]
+            for k, name in POLYGENICITY_CHECKS.items() if k in n]
+    return table(pd.DataFrame(rows, columns=["Check", "Diseases", "P1", "P2", "P3"]))
+
+
 def polygenicity_area_table() -> str:
     """Diseases and entries of each disease area by tertile (the no-score group as a fourth column)."""
     a = pd.read_csv(os.path.join(OUT, "polygenicity", "area.csv"))
@@ -702,7 +724,8 @@ TABLES = {"TRANSITIONS_TABLE": transitions_table,
           "POLYGENICITY_TESTS_TABLE": polygenicity_tests_table,
           "POLYGENICITY_SENSITIVITIES_TABLE": polygenicity_sensitivities_table,
           "POLYGENICITY_TERTILES_TABLE": polygenicity_tertiles_table, "POLYGENICITY_AREA_TABLE": polygenicity_area_table,
-          "POLYGENICITY_NO_SCORE_TABLE": polygenicity_no_score_table, "SENSITIVITY_TABLE": sensitivity_table,
+          "POLYGENICITY_NO_SCORE_TABLE": polygenicity_no_score_table,
+          "POLYGENICITY_DESCRIPTIVES_TABLE": polygenicity_descriptives_table, "SENSITIVITY_TABLE": sensitivity_table,
           "PERIOD_TABLE": period_table, "YEAR_TABLE": year_table, "RUNNING_TABLE": running_table,
           "FAILURE_DEFINITIONS_TABLE": failure_definitions_table, "EVIDENCE_DEFINITIONS_TABLE": evidence_definitions_table,
           "AREA_TABLE": lambda: stratum_table("loa_by_area.csv", "Disease area", bio.AREA_LOA),

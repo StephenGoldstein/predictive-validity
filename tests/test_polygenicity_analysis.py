@@ -101,3 +101,31 @@ def test_profile_numeric_columns_come_back_as_floats_not_decimals():
     assert f.score.dtype == np.float64 and f.score[0] == 1.5 and np.isnan(f.score[1])
     assert f.label.equals(p.label) and f.mondo_id.tolist() == ["M1", "M2"]   # untouched, however pandas holds None
     assert f.k_via_parent.equals(p.k_via_parent)
+
+
+def test_pinned_unit_refuses_a_different_build_or_a_moved_disease():
+    """After the gate, a report run must sit on the registered unit: the same programme build, no disease the profile
+    lacks, and the same tertile for every disease as the committed membership file."""
+    from report.polygenicity import pinned_unit
+    m = pd.DataFrame({"mondo_id": ["a", "b"], "tertile": ["top", "bottom"]})
+    pinned_unit({"build_id": "x", "not_profiled": []}, "x", m, m)
+    with pytest.raises(RuntimeError):
+        pinned_unit({"build_id": "y", "not_profiled": []}, "x", m, m)
+    with pytest.raises(RuntimeError):
+        pinned_unit({"build_id": "x", "not_profiled": ["c"]}, "x", m, m)
+    with pytest.raises(RuntimeError):
+        pinned_unit({"build_id": "x", "not_profiled": []}, "x", m.assign(tertile=["top", "middle"]), m)
+
+
+def test_descriptives_table_lists_each_check_with_its_readings(tmp_path, monkeypatch):
+    import json
+    from report.render import polygenicity_descriptives_table
+    fit = {"rr": 1.2, "lo": 1.0, "hi": 1.5, "reading": "same direction, not confirmed"}
+    desc = {"z_at_least_2": {"diseases": 10, "tests": {"P1": fit, "P2": fit, "P3": {"reading": "not estimable"}}},
+            "gbd_k_only": {"diseases": 4, "tests": {}}, "catalog_loci": {"diseases": 9, "tests": {"P1": fit, "P2": fit, "P3": fit}},
+            "gwas_genes": {"diseases": 12, "tests": {"P1": fit, "P2": fit, "P3": fit}}}
+    (tmp_path / "polygenicity").mkdir()
+    (tmp_path / "polygenicity" / "numbers.json").write_text(json.dumps({"descriptives": desc}))
+    monkeypatch.setattr("report.render.OUT", str(tmp_path))
+    out = polygenicity_descriptives_table()
+    assert out.count("\n| ") == 5 and "1.20 (1.00–1.50)" in out and "not estimable" in out and "not run" in out

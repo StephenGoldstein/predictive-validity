@@ -84,3 +84,14 @@ def test_daly_share_with_a_group_that_has_no_leaf_rows_reports_zero_shares():
     flags = pd.DataFrame({"mondo_id": ["M1"], "mendelian_form": [True], "drugged_large_effect": [False]})
     s = daly_share(who, m, flags)
     assert s["ncd"]["either"] == 0.0 and s["ncd"]["largest"] == [] and s["all"]["mendelian_form"] == 0.6
+
+
+def test_daly_flags_come_from_the_stored_profile_not_the_raw_association_file():
+    """The report reads the drugged-gene flag from preclin.disease_polygenicity (filled by `pipeline.polygenicity
+    drugged`), so a report build needs no local Open Targets download; an unfilled column is a loud error."""
+    from report.polygenicity import daly_flags
+    prof = pd.DataFrame({"mondo_id": ["a", "b"], "mendelian_form": [True, None], "drugged_large_effect": [False, True]})
+    f = daly_flags(prof)
+    assert f.mendelian_form.tolist() == [True, False] and f.drugged_large_effect.tolist() == [False, True]
+    with pytest.raises(RuntimeError, match="drugged"):
+        daly_flags(prof.assign(drugged_large_effect=None))

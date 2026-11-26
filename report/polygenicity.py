@@ -48,6 +48,7 @@ from report.section3 import jsonable
 
 OUT = os.path.join(frame.REPO, "report", "output", "polygenicity")
 AUDITS = os.path.join(frame.REPO, "report", "audits")
+AUDIT_TERTILES = os.path.join(AUDITS, "polygenicity_tertiles.csv")   # the registered membership, fixed by the gate
 EXCLUDED_AREAS = ("oncology", "infectious_disease")
 LEVELS = ("bottom", "middle", "top")
 # Fixed before any outcome was joined (the dated comment on #147 named in polygenicity_definitions.md); None until then.
@@ -117,6 +118,20 @@ def within_area_variance(u: pd.DataFrame) -> dict:
     within = float((s.log10_score - s.groupby("bio_area").log10_score.transform("mean")).pow(2).sum())
     out["share"] = within / total if total > 0 else None
     return out
+
+
+def pinned_unit(check: dict, build_id: str | None, membership: pd.DataFrame, audit: pd.DataFrame) -> None:
+    """After the gate a report run sits on the registered unit: the programme build the comment named, no disease the
+    profile lacks, and every disease in the tertile the committed membership file gives it; otherwise a loud error
+    rather than a silently re-formed cohort."""
+    if build_id and check.get("build_id") != build_id:
+        raise RuntimeError(f"programme build {check.get('build_id')} is not the registered build {build_id}: the unit would re-form")
+    if check.get("not_profiled"):
+        raise RuntimeError(f"{len(check['not_profiled'])} unit diseases are not profiled: {check['not_profiled'][:5]}")
+    now, was = membership.set_index("mondo_id").tertile, audit.set_index("mondo_id").tertile
+    moved = [m for m in was.index.union(now.index) if now.get(m) != was.get(m)]
+    if moved:
+        raise RuntimeError(f"{len(moved)} diseases are not in their registered tertile ({moved[:5]}): the profile changed after the gate")
 
 
 def evidence_line_build() -> dict:
@@ -245,11 +260,21 @@ def drugged_large_effect(prof: pd.DataFrame, drugged: dict[str, set[str]] | None
     return pd.DataFrame(rows)
 
 
+def daly_flags(prof: pd.DataFrame) -> pd.DataFrame:
+    """The two flags per profiled disease from the stored profile: the Mendelian form and the drugged large-effect gene
+    (`pipeline.polygenicity drugged`, migration 172); an unfilled drugged column is a loud error, not a silent False."""
+    if "drugged_large_effect" not in prof or prof.drugged_large_effect.isna().all():
+        raise RuntimeError("preclin.disease_polygenicity.drugged_large_effect is not filled: apply migration 172 and run "
+                           "`python -m pipeline.polygenicity drugged`")
+    f = prof[["mondo_id", "mendelian_form", "drugged_large_effect"]].copy()
+    f["mendelian_form"] = f.mendelian_form.map(lambda v: bool(v) if v is not None and v == v else False)
+    f["drugged_large_effect"] = f.drugged_large_effect.map(lambda v: bool(v) if v is not None and v == v else False)
+    return f
+
+
 def daly(prof: pd.DataFrame) -> dict:
     who = pd.read_csv(WHO_FILE)
-    flags = prof[["mondo_id", "mendelian_form"]].merge(drugged_large_effect(prof), on="mondo_id", how="left")
-    flags["mendelian_form"] = flags.mendelian_form.fillna(False).astype(bool)
-    flags["drugged_large_effect"] = flags.drugged_large_effect.fillna(False).astype(bool)
+    flags = daly_flags(prof)
     s = daly_share(who, who_map(), flags)
     pd.DataFrame([{"denominator": k, **{kk: vv for kk, vv in v.items() if kk != "largest"}} for k, v in s.items()]) \
         .to_csv(os.path.join(OUT, "daly.csv"), index=False)
@@ -263,7 +288,8 @@ def main() -> None:
     prof = profile()
     u = unit(d, prof)
     u.to_csv(os.path.join(OUT, "unit.csv"), index=False)
-    membership(u, CUTPOINTS).to_csv(os.path.join(OUT, "membership.csv"), index=False)
+    m = membership(u, CUTPOINTS)
+    m.to_csv(os.path.join(OUT, "membership.csv"), index=False)
     check = pre_comment_check(d, u)
     print(json.dumps(jsonable(check), indent=1))
     with open(os.path.join(OUT, "check.json"), "w") as f:
@@ -279,6 +305,7 @@ def main() -> None:
     if CUTPOINTS is None:
         print("CUTPOINTS not set: the tertiles are not fixed; no outcome is joined.")
         return
+    pinned_unit(check, BUILD_ID, m, pd.read_csv(AUDIT_TERTILES, dtype={"mondo_id": str}))
     from report.polygenicity_tests import run_tests  # noqa: PLC0415  (the second half, after the dated comment)
     extra = {"daly": daly(prof), "check": check}
     if os.path.exists(os.path.join(OUT, "power.json")):   # the second pre-join check, run before the comment

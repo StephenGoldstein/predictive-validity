@@ -108,13 +108,18 @@ def p3(d: pd.DataFrame, covars=COVARS, extra: tuple[str, ...] = (), levels=("top
                        ("bottom_genetics", (c.top <= 0) & (c.genetics > 0)), ("bottom_no_genetics", (c.top <= 0) & (c.genetics <= 0))):
         cells[name] = {"entries": int(mask.sum()), "targets": int(c.target[mask].nunique()), "events": int(c.s4[mask].sum())}
     ok = all(v["targets"] >= MIN_TARGETS and v["events"] >= 1 for v in cells.values())
-    out = {"cells": cells, "estimable": ok, **group_counts(c, "s4"), "n": int(len(c)), "n_targets": int(c.target.nunique())}
+    within = {}
+    for lev in ("top", "bottom"):   # the genetics ratio within a tertile, whenever that tertile's own two cells allow it
+        lev_ok = all(cells[f"{lev}_{g}"]["targets"] >= MIN_TARGETS and cells[f"{lev}_{g}"]["events"] >= 1
+                     for g in ("genetics", "no_genetics"))
+        within[lev] = (estimate(c[c.top == (1.0 if lev == "top" else 0.0)], "s4", "genetics", covars + extra, cluster=CLUSTER)
+                       if lev_ok else {"estimable": False})
+    out = {"cells": cells, "estimable": ok, **group_counts(c, "s4"), "n": int(len(c)), "n_targets": int(c.target.nunique()),
+           "genetics_within": within}
     if not ok:
         return out
     fit = poisson(c, "s4", ["top", "genetics", "top_x_genetics"], covars + extra, cluster=CLUSTER)
-    within = {lev: estimate(c[c.top == (1.0 if lev == "top" else 0.0)], "s4", "genetics", covars + extra, cluster=CLUSTER)
-              for lev in ("top", "bottom")}
-    return {**out, **coef(fit, "top_x_genetics"), "genetics_within": within}
+    return {**out, **coef(fit, "top_x_genetics")}
 
 
 def registered(d: pd.DataFrame, extra: tuple[str, ...] = (), col: str = "tertile",
@@ -195,16 +200,43 @@ def power_simulation(d: pd.DataFrame, reps: int = 200, seed: int = 0, disease_sd
 
 
 def rates(d: pd.DataFrame, col: str) -> pd.DataFrame:
-    """Per level of `col`: diseases, entries, not-causal stops and rate (Phase 2 and 3), S4 and rate (Phase 2)."""
+    """Per level of `col`, on the tests' denominator (entries with a resolved primary target): diseases, entries,
+    not-causal stops and rate (Phase 2 and 3), S4 and rate (Phase 2); and the entries without a resolved target."""
     rows = []
     for level, g in d.groupby(col):
-        p2e = g[g.phase.eq(2)]
-        rows.append({col: level, "diseases": int(g.mondo_id.nunique()), "entries": int(len(g)),
-                     "phase2_entries": int(len(p2e)), "not_causal": int(g.mode_not_causal.sum()),
-                     "not_causal_rate": float(g.mode_not_causal.mean()) if len(g) else None,
+        resolved = g.has_target_disease.fillna(False).astype(bool)
+        res = g[resolved]
+        p2e = res[res.phase.eq(2)]
+        rows.append({col: level, "diseases": int(g.mondo_id.nunique()), "entries": int(len(res)),
+                     "phase2_entries": int(len(p2e)), "not_causal": int(res.mode_not_causal.sum()),
+                     "not_causal_rate": float(res.mode_not_causal.mean()) if len(res) else None,
                      "s4": int(p2e.s4.sum()), "s4_rate": float(p2e.s4.mean()) if len(p2e) else None,
-                     "without_target": int((~g.has_target_disease.fillna(False).astype(bool)).sum())})
+                     "without_target": int((~resolved).sum())})
     return pd.DataFrame(rows)
+
+
+def gwas_size_check(u: pd.DataFrame, membership: pd.DataFrame) -> dict:
+    """Does the score track GWAS size: Spearman of the score with the chosen study's n_eff over the scored diseases,
+    and the median n_eff per tertile (the review finding of 2026-11-25, reported beside the null)."""
+    s = u[u.scored & u.score.notna() & u.n_eff.notna()].merge(membership[["mondo_id", "tertile"]].drop_duplicates(),
+                                                              on="mondo_id", how="left")
+    out = {"n": int(len(s)), "spearman": None, "p": None,
+           "median_n_eff": {str(k): float(v) for k, v in s.groupby("tertile").n_eff.median().items()}}
+    if len(s) >= 3:
+        rho, p = spearmanr(s.score, s.n_eff)
+        out.update({"spearman": float(rho), "p": float(p)})
+    return out
+
+
+def panukb_check(u: pd.DataFrame) -> dict:
+    """Pan-UKB's own liability-scale heritability of the matching ICD-10 code against ours, over the scored diseases
+    with both: a descriptive check on the LDSC runs."""
+    s = u[u.scored & u.h2_liab.notna() & u.panukb_h2_liab.notna()]
+    out = {"n": int(len(s)), "spearman": None, "p": None}
+    if len(s) >= 3:
+        rho, p = spearmanr(s.h2_liab, s.panukb_h2_liab)
+        out.update({"spearman": float(rho), "p": float(p)})
+    return out
 
 
 def descriptives(d: pd.DataFrame, u: pd.DataFrame) -> dict:
@@ -227,7 +259,7 @@ def descriptives(d: pd.DataFrame, u: pd.DataFrame) -> dict:
         dd["tertile_z2"] = tertile(dd.score_z2, cutpoints(sc))
         out["z_at_least_2"]["tests"] = registered(dd, col="tertile_z2")
     # GBD-K diseases only
-    gk = d[d.k_source.eq("gbd")]
+    gk = d[d.k_source.eq("gbd") & d.scored.fillna(False).astype(bool)]   # scored diseases only: the ones the tests use
     out["gbd_k_only"] = {"diseases": int(gk.mondo_id.nunique()), "tests": registered(gk) if gk.mondo_id.nunique() >= 6 else {}}
     # the Catalog's all-study loci in place of the clumped loci
     cat = u[u.scored & u.loci_catalog.notna() & u.h2_liab.notna()]
@@ -255,6 +287,8 @@ def descriptives(d: pd.DataFrame, u: pd.DataFrame) -> dict:
     c = cohort(d, "mode_not_causal")
     nc = c[c.mode_not_causal > 0]
     out["not_causal_basis"] = nc.groupby(["tertile", "not_causal_basis"]).size().reset_index(name="events").to_dict("records")
+    out["gwas_size"] = gwas_size_check(u, d[["mondo_id", "tertile"]].drop_duplicates())
+    out["panukb"] = panukb_check(u)
     return out
 
 

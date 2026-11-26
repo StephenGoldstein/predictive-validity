@@ -291,7 +291,14 @@ def read_associations() -> pd.DataFrame:
     return pd.read_csv(os.path.join(CACHE, ASSOCIATIONS), sep="\t", dtype=str, usecols=cols, low_memory=False)
 
 
-def load(_args) -> None:
+def reload_allowed(n_runs: int, force: bool) -> None:
+    """A reload deletes every LDSC run and the disease profile with them (they cite the study rows); with runs present
+    it refuses unless forced, so a routine Catalog refresh cannot wipe days of runs on the shared database."""
+    if n_runs and not force:
+        raise SystemExit(f"preclin.ldsc_run holds {n_runs} runs that a reload would delete; pass --force to proceed")
+
+
+def load(args) -> None:
     studies, ancestry = read_studies(), read_ancestry()
     harmonised = harmonised_paths(os.path.join(CACHE, HARMONISED_LIST))
     frame = study_frame(studies, ancestry, trait_lookup(), harmonised)
@@ -299,6 +306,8 @@ def load(_args) -> None:
         rid = llm.register_release(cur, "gwas_catalog", RELEASE, RELEASES, llm.sha256_file(os.path.join(CACHE, STUDIES)),
                                    {"files": [STUDIES, ANCESTRY, TRAIT_MAPPINGS, ASSOCIATIONS, HARMONISED_LIST],
                                     "studies": int(len(frame)), "harmonised": len(harmonised)})
+        cur.execute("SELECT count(*) FROM preclin.ldsc_run")
+        reload_allowed(cur.fetchone()[0], getattr(args, "force", False))
         cur.execute("DELETE FROM preclin.disease_polygenicity")
         cur.execute("DELETE FROM preclin.ldsc_run")
         cur.execute("DELETE FROM preclin.gwas_catalog_study")
@@ -319,7 +328,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("fetch").set_defaults(fn=fetch)
-    sub.add_parser("load").set_defaults(fn=load)
+    load_parser = sub.add_parser("load")
+    load_parser.add_argument("--force", action="store_true", help="delete the existing LDSC runs and profile with the studies")
+    load_parser.set_defaults(fn=load)
     args = parser.parse_args()
     args.fn(args)
 

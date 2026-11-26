@@ -157,3 +157,30 @@ def test_excluded_runs_skips_studies_with_too_few_merged_snps_or_no_usable_effec
                          "n_snps": [48_002, None, 1_168_849, None],
                          "status": ["ok", "no_effect", "ok", "fetch_failed"]})
     assert polygenicity.excluded_runs(runs) == {"GCST003044", "GCST90444373"}
+
+
+def test_expand_icd_range_lists_every_three_character_code():
+    from pipeline import polygenicity
+    assert polygenicity.expand_icd("I10-I16") == {"I10", "I11", "I12", "I13", "I14", "I15", "I16"}
+    assert polygenicity.expand_icd("K50") == {"K50"} and polygenicity.expand_icd("E109") == {"E109"}
+    assert len(polygenicity.expand_icd("D50-D89")) == 40
+
+
+def test_own_and_descendant_codes_keep_the_diseases_own_codes_apart():
+    from pipeline import polygenicity
+    xrefs = pd.DataFrame({"term_id": ["M", "M", "C"], "code": ["I10-I16", "I15", "H40"]})
+    own, desc = polygenicity.own_and_descendant_codes("M", {"M", "C"}, xrefs)
+    assert own == {"I10", "I11", "I12", "I13", "I14", "I15", "I16"} and desc == {"H40"}
+
+
+def test_k_for_prefers_the_diseases_own_icd_code_over_a_descendants_code_with_more_cases():
+    """Review of 2026-11-25: hypertensive disorder took K from glaucoma's H40, a descendant's code with more Pan-UKB
+    cases, because its own codes were a range the cross-reference parser did not expand. Own codes come first."""
+    from pipeline import polygenicity
+    ukb = pd.DataFrame({"phenocode": ["I10", "H40"], "n_cases_EUR": [20_000, 50_000], "n_controls_EUR": [380_000, 350_000]})
+    k, source, code, via_parent = polygenicity.k_for("M", {}, {}, {"I10"}, ukb, descendant_codes={"H40"})
+    assert (source, code, via_parent) == ("panukb", "I10", False) and abs(k - 0.05) < 1e-9
+    k, source, code, via_parent = polygenicity.k_for("M", {}, {}, set(), ukb, descendant_codes={"H40"})
+    assert (source, code, via_parent) == ("panukb", "H40", True)
+    k, source, code, via_parent = polygenicity.k_for("M", {}, {}, {"I109"}, ukb, descendant_codes={"H40"})
+    assert (code, via_parent) == ("I10", True)

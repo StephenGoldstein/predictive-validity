@@ -72,3 +72,14 @@ def test_platform_snps_reads_the_bracketed_count():
     assert platform_snps("Affymetrix, Illumina [130,000]") == 130_000
     assert platform_snps("Illumina [~ 10,500,000 (imputed)]; Affymetrix [550,000]") == 10_500_000
     assert platform_snps("NR") is None and platform_snps(None) is None
+
+
+def test_reload_refuses_to_delete_ldsc_runs_without_force():
+    """A Catalog reload deletes every LDSC run and the disease profile with it; on the shared database that is two
+    days of runs and the registered profile, so it refuses unless forced."""
+    import pytest
+    from pipeline import gwas_catalog
+    gwas_catalog.reload_allowed(0, force=False)
+    gwas_catalog.reload_allowed(229, force=True)
+    with pytest.raises(SystemExit):
+        gwas_catalog.reload_allowed(229, force=False)
