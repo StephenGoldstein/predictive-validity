@@ -1046,49 +1046,57 @@ def target_origin_routes():
 def polygenicity_tertiles():
     """The polygenicity tertiles and the no-score group (report.polygenicity tertiles.csv): the share of Phase 2 and
     3 entries that stopped because the target was not causal, and the share of Phase 2 entries that advanced, each
-    with its 95% range; and the genetics risk ratio on S4 within the top and bottom tertiles (numbers.json)."""
+    with its Wilson 95% range; and the genetics risk ratio on S4 within the top and bottom tertiles (numbers.json),
+    drawn where that tertile's cells pass the P3 floor. The tertiles the tests compare are blue."""
     t = pd.read_csv(os.path.join(OUT, "polygenicity", "tertiles.csv")).set_index("tertile")
     n = json.load(open(os.path.join(OUT, "polygenicity", "numbers.json")))
     order = [g for g in ("top", "middle", "bottom", "none") if g in t.index]
-    labels = {"top": "Top tertile\n(most polygenic)", "middle": "Middle", "bottom": "Bottom tertile\n(least polygenic)",
-              "none": "No score"}
-    colors = {"top": "#1f5fa8", "middle": "#6f9bd1", "bottom": "#a9c4e6", "none": MUTED}
-    fig, axes = plt.subplots(1, 3, figsize=(12, 3.8))
-    for ax, (num, den, title) in zip(axes[:2], (("not_causal", "entries", "Stopped: target not causal\n(Phase 2 and 3 entries)"),
-                                                ("s4", "phase2_entries", "Advanced from Phase 2\n(Phase 2 entries)"))):
-        for i, g in enumerate(order):
+    labels = {"top": "Top tertile (most polygenic)", "middle": "Middle tertile",
+              "bottom": "Bottom tertile (least polygenic)", "none": "No score"}
+    compared = {"top", "bottom"}
+    y = {g: -i for i, g in enumerate(order)}
+    fig, axes = plt.subplots(1, 3, figsize=(12, 0.5 * len(order) + 1.4), sharey=True,
+                             gridspec_kw={"width_ratios": [1.4, 1.4, 1], "wspace": 0.45})
+    panels = (("not_causal", "entries", "Stopped: target not causal\n(Phase 2 and 3 entries, 95% range)"),
+              ("s4", "phase2_entries", "Advanced from Phase 2\n(Phase 2 entries, 95% range)"))
+    for ax, (num, den, title) in zip(axes[:2], panels):
+        ranges = {g: proportion_confint(int(t.loc[g, num]), int(t.loc[g, den]), method="wilson") for g in order}
+        right = max(hi for _, hi in ranges.values()) * 100 + 2
+        for g in order:
             k, m = int(t.loc[g, num]), int(t.loc[g, den])
-            lo, hi = proportion_confint(k, m, method="wilson") if m else (0, 0)
-            share = k / m if m else 0
-            ax.barh(-i, share, color=colors[g], height=0.62)
-            ax.plot([lo, hi], [-i, -i], color=INK, lw=1)
-            ax.text(hi + 0.01, -i, f"{k:,} of {m:,}", va="center", fontsize=9, color=INK2)
-        ax.set_yticks([-i for i in range(len(order))], [labels[g] for g in order], fontsize=9)
-        ax.xaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=0))
-        ax.set_title(title, fontsize=10, loc="left")
-        for side in ("top", "right"):
-            ax.spines[side].set_visible(False)
+            lo, hi = ranges[g]
+            color = ACCENT if g in compared else MUTED
+            ax.plot([lo * 100, hi * 100], [y[g], y[g]], color=color, linewidth=2, solid_capstyle="round")
+            ax.plot(k / m * 100, y[g], "o", markersize=7, color=color)
+            ax.text(right, y[g], f"{k / m:.0%}", va="center", color=INK2, fontsize=9)
+            ax.text(right + 4, y[g], f"n={m:,}", va="center", color=INK2, fontsize=9)
+        ax.set_xlim(0, right)
+        ax.xaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(decimals=0))
+        style(ax)
+        ax.set_title(title, loc="left", color=INK, fontsize=10)
     ax = axes[2]
-    within = n["tests"]["P3"].get("genetics_within", {})
-    rows = [(lev, within.get(lev, {})) for lev in ("top", "bottom")]
-    for i, (lev, r) in enumerate(rows):
+    p3 = n["tests"]["P3"]
+    within = p3.get("genetics_within", {})
+    for lev in ("top", "bottom"):
+        r = within.get(lev, {})
         if "rr" in r:
-            ax.errorbar(r["rr"], -i, xerr=[[r["rr"] - r["lo"]], [r["hi"] - r["rr"]]], fmt="o", color=colors[lev], capsize=3)
-            ax.text(r["hi"] * 1.05, -i, f"{r['rr']:.2f}", va="center", fontsize=9, color=INK2)
+            ax.plot([np.log2(r["lo"]), np.log2(r["hi"])], [y[lev], y[lev]], color=INK2, linewidth=1)
+            ax.scatter(np.log2(r["rr"]), y[lev], s=28, color=ACCENT, zorder=3, edgecolors="none")
+            ax.text(max(np.log2(r["hi"]), 0) + 0.08, y[lev], f"{r['rr']:.2f}× (n={r['n_cohort']:,})", va="center",
+                    color=INK2, fontsize=8)
         else:
-            ax.text(1, -i, "not estimable", va="center", fontsize=9, color=MUTED)
-    ax.axvline(1, color=MUTED, lw=0.8, ls="--")
-    ax.set_xscale("log")
+            sets = p3["cells"][f"{lev}_genetics"]["targets"]
+            ax.text(np.log2(0.4) + 0.08, y[lev], f"not estimable ({sets} target sets with support)", va="center",
+                    color=MUTED, fontsize=8)
+    ax.axvline(0, color=INK2, linewidth=1)
     ticks = [0.5, 1, 2, 4]
-    ax.set_xlim(0.4, 5)
-    ax.set_xticks(ticks, [f"{x:g}×" for x in ticks])
-    ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
-    ax.set_yticks([0, -1], [labels["top"], labels["bottom"]], fontsize=9)
-    ax.set_ylim(-1.6, 0.6)
-    ax.set_title("Risk ratio of human genetic support on advance\n(S4, within tertile, adjusted)", fontsize=10, loc="left")
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    fig.tight_layout()
+    ax.set_xticks(np.log2(ticks), [f"{x:g}×" for x in ticks])
+    ax.set_xlim(np.log2(0.4), np.log2(6))
+    style(ax)
+    ax.set_title("Advance with human genetic support\nagainst without, within tertile (adjusted)", loc="left",
+                 color=INK, fontsize=10)
+    axes[0].set_yticks([y[g] for g in order], [labels[g] for g in order], color=INK, fontsize=9)
+    axes[0].set_ylim(min(y.values()) - 0.6, 0.6)
     save(fig, "polygenicity_tertiles")
 
 

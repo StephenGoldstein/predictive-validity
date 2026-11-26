@@ -141,8 +141,10 @@ def test_tertiles_figure_ratio_axis_uses_the_fold_tick_convention(tmp_path, monk
     pd.DataFrame({"tertile": ["top", "middle", "bottom", "none"], "entries": [673, 375, 286, 1368],
                   "not_causal": [59, 54, 31, 158], "phase2_entries": [483, 269, 208, 988],
                   "s4": [89, 42, 33, 193]}).to_csv(out / "tertiles.csv", index=False)
-    (out / "numbers.json").write_text(json.dumps({"tests": {"P3": {"genetics_within": {
-        "top": {"rr": 1.57, "lo": 0.86, "hi": 2.88}, "bottom": {"estimable": False}}}}}))
+    (out / "numbers.json").write_text(json.dumps({"tests": {"P3": {
+        "cells": {"top_genetics": {"targets": 33}, "bottom_genetics": {"targets": 12}},
+        "genetics_within": {"top": {"rr": 1.57, "lo": 0.86, "hi": 2.88, "n_cohort": 483},
+                            "bottom": {"estimable": False}}}}}))
     captured = {}
     monkeypatch.setattr(figures, "OUT", str(tmp_path))
     monkeypatch.setattr(figures, "save", lambda fig, name: captured.setdefault(name, fig))
@@ -150,3 +152,6 @@ def test_tertiles_figure_ratio_axis_uses_the_fold_tick_convention(tmp_path, monk
     ax = captured["polygenicity_tertiles"].axes[2]
     assert [t.get_text() for t in ax.get_xticklabels()] == ["0.5×", "1×", "2×", "4×"]
     assert ax.xaxis.get_minor_locator().__class__.__name__ == "NullLocator"
+    for a in captured["polygenicity_tertiles"].axes:   # the house style(ax): no left spine, no tick marks
+        assert not a.spines["left"].get_visible()
+        assert a.xaxis.get_major_ticks()[0].tick1line.get_markersize() == 0
