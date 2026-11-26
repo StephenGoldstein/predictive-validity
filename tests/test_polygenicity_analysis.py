@@ -129,3 +129,24 @@ def test_descriptives_table_lists_each_check_with_its_readings(tmp_path, monkeyp
     monkeypatch.setattr("report.render.OUT", str(tmp_path))
     out = polygenicity_descriptives_table()
     assert out.count("\n| ") == 5 and "1.20 (1.00–1.50)" in out and "not estimable" in out and "not run" in out
+
+
+def test_tertiles_figure_ratio_axis_uses_the_fold_tick_convention(tmp_path, monkeypatch):
+    import json
+    import matplotlib
+    matplotlib.use("Agg")
+    from report import figures
+    out = tmp_path / "polygenicity"
+    out.mkdir()
+    pd.DataFrame({"tertile": ["top", "middle", "bottom", "none"], "entries": [673, 375, 286, 1368],
+                  "not_causal": [59, 54, 31, 158], "phase2_entries": [483, 269, 208, 988],
+                  "s4": [89, 42, 33, 193]}).to_csv(out / "tertiles.csv", index=False)
+    (out / "numbers.json").write_text(json.dumps({"tests": {"P3": {"genetics_within": {
+        "top": {"rr": 1.57, "lo": 0.86, "hi": 2.88}, "bottom": {"estimable": False}}}}}))
+    captured = {}
+    monkeypatch.setattr(figures, "OUT", str(tmp_path))
+    monkeypatch.setattr(figures, "save", lambda fig, name: captured.setdefault(name, fig))
+    figures.polygenicity_tertiles()
+    ax = captured["polygenicity_tertiles"].axes[2]
+    assert [t.get_text() for t in ax.get_xticklabels()] == ["0.5×", "1×", "2×", "4×"]
+    assert ax.xaxis.get_minor_locator().__class__.__name__ == "NullLocator"

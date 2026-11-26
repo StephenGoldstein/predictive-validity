@@ -1079,6 +1079,10 @@ def polygenicity_tertiles():
             ax.text(1, -i, "not estimable", va="center", fontsize=9, color=MUTED)
     ax.axvline(1, color=MUTED, lw=0.8, ls="--")
     ax.set_xscale("log")
+    ticks = [0.5, 1, 2, 4]
+    ax.set_xlim(0.4, 5)
+    ax.set_xticks(ticks, [f"{x:g}×" for x in ticks])
+    ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
     ax.set_yticks([0, -1], [labels["top"], labels["bottom"]], fontsize=9)
     ax.set_ylim(-1.6, 0.6)
     ax.set_title("Risk ratio of human genetic support on advance\n(S4, within tertile, adjusted)", fontsize=10, loc="left")
