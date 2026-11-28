@@ -75,7 +75,7 @@ K_RULE_COLS = ("k", "k_source", "k_code", "k_via_parent", "h2_liab", "score", "l
 
 
 def k_rule(rule: str, rows: pd.DataFrame | None = None) -> pd.DataFrame:
-    """One rule's rows of preclin.disease_polygenicity_k (migration 179; `pipeline.polygenicity k-rules`) as columns
+    """One rule's rows of preclin.disease_polygenicity_k (migration 181; `pipeline.polygenicity k-rules`) as columns
     suffixed with the rule (k_v3, k_v3_source, k_v3_code, k_v3_via_parent, h2_liab_v3, score_v3, ldsc_status_v3,
     category_v3), to sit beside the profile's registered columns."""
     if rows is None:

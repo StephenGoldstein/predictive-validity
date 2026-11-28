@@ -658,7 +658,7 @@ def k_corrected(_args) -> None:
 
 
 def k_rules(_args) -> None:
-    """Fill preclin.disease_polygenicity_k (migration 179): one row per profiled disease per rule. `registered` and
+    """Fill preclin.disease_polygenicity_k (migration 181): one row per profiled disease per rule. `registered` and
     `own_first` copy the profile's own columns; `v3` is k_for_v3 on the stored runs (announced on #147 2026-11-27).
     The profile's columns are not touched."""
     prof = frame.query(f"""SELECT mondo_id, gcst, k, k_source, k_code, k_via_parent, h2_liab, score, {', '.join(K_CORRECTED_COLS)},

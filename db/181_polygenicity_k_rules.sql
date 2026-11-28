@@ -1,9 +1,9 @@
--- Polygenicity (#147), migration 179: the population prevalence K of each profiled disease under each rule, one row per
+-- Polygenicity (#147), migration 181: the population prevalence K of each profiled disease under each rule, one row per
 -- disease per rule, so the sensitivities can be run and compared without touching the profile's registered columns.
 -- Rules: registered (the gate of 2026-11-25, copied from the profile), own_first (the corrected rule of migration 178,
 -- copied), v3 (announced on #147 on 2026-11-27 after an independent check of every code: own three-character ICD-10
 -- codes and the phecodes reached through MONDO's ICD-9 cross-references first, then parents, Pan-UKB before GBD at
--- 1,000 cases, descendants pooled, chapter-level terms left without a K). Filled by `python -m pipeline.polygenicity k-rules`.
+-- 1,000 cases, descendants pooled, chapter-level terms left without a K). Filled by `python -m pipeline.polygenicity k-rules`. Numbered 181: 179 and 180 were applied from another branch on 2026-11-27.
 BEGIN;
 SET LOCAL lock_timeout = '3s';
 

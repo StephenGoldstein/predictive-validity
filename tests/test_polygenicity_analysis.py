@@ -182,7 +182,7 @@ def test_tertiles_figure_ratio_axis_uses_the_fold_tick_convention(tmp_path, monk
 
 
 def test_k_rule_frame_renames_the_long_table_columns_for_one_rule():
-    """preclin.disease_polygenicity_k (migration 179) holds one row per disease per rule; the report reads one rule's
+    """preclin.disease_polygenicity_k (migration 181) holds one row per disease per rule; the report reads one rule's
     rows as columns suffixed with the rule, to sit beside the profile's registered columns."""
     from report.polygenicity import k_rule
     rows = pd.DataFrame({"mondo_id": ["M1", "M2"], "k": [0.01, None], "k_source": ["panukb", "none"], "k_code": ["401", None],

@@ -110,6 +110,10 @@ def test_alternative_tertiles_recut_the_corrected_k_and_residual_scores_and_coun
     assert meta["k_corrected"]["changes"] == {"changed": 7, "between_tertiles": 6, "lost_score": 1, "gained_score": 0,
                                               "diseases": ["M0", "M1", "M2", "M3", "M6", "M7", "M8"]}
     assert sorted(u2.tertile_resid.value_counts().tolist()) == [3, 3, 3] and meta["residual"]["diseases"] == 9
+    # a disease that stays on GBD under v3 has no code under either rule and is not a changed code
+    u3 = u.assign(k_source=["gbd"] + ["panukb"] * 8, k_code=[None] + ["I10"] * 8, k_v3_source=["gbd"] + ["panukb"] * 8,
+                  k_v3_code=[None, "401"] + ["I10"] * 7)
+    assert alternative_tertiles(u3, cuts=(30.0, 60.0))[1]["k_v3"]["code_changed"] == 1
 
 
 def test_negative_control_leaves_safety_stops_out_and_is_two_sided():

@@ -108,9 +108,9 @@ def alternative_tertiles(u: pd.DataFrame, cuts: tuple[float, float]) -> tuple[pd
                   "code_changed": int((ukb & (out.k_corrected_code.ne(out.k_code) | out.k_corrected_source.ne("panukb"))).sum()),
                   "via_parent": int(out.k_corrected_via_parent.fillna(False).astype(bool)[scored_k].sum()),
                   "k_sources": {str(a): int(b) for a, b in out.k_corrected_source[scored_k].value_counts().items()}})
-    # rule v3 (preclin.disease_polygenicity_k, migration 179; announced on #147 2026-11-27 after the independent code check)
+    # rule v3 (preclin.disease_polygenicity_k, migration 181; announced on #147 2026-11-27 after the independent code check)
     if "score_v3" not in out.columns or out.ldsc_status_v3.isna().all():
-        raise RuntimeError("preclin.disease_polygenicity_k has no v3 rows: apply migration 179 and run `python -m pipeline.polygenicity k-rules`")
+        raise RuntimeError("preclin.disease_polygenicity_k has no v3 rows: apply migration 181 and run `python -m pipeline.polygenicity k-rules`")
     scored_v3 = out.ldsc_status_v3.eq("ok") & out.score_v3.notna()
     cuts_v3 = cutpoints(out.score_v3[scored_v3])
     out["tertile_v3"] = tertile(out.score_v3.where(scored_v3), cuts_v3)
@@ -118,7 +118,7 @@ def alternative_tertiles(u: pd.DataFrame, cuts: tuple[float, float]) -> tuple[pd
           "changes": tertile_changes(out, "tertile", "tertile_v3"),
           "category_scored": int((out.category_v3.fillna(False).astype(bool) & scored).sum())}
     if "k_v3_code" in out.columns:
-        v3.update({"code_changed": int((scored & (out.k_v3_code.ne(out.k_code) | out.k_v3_source.ne(out.k_source))).sum()),
+        v3.update({"code_changed": int((scored & (out.k_v3_code.fillna("").ne(out.k_code.fillna("")) | out.k_v3_source.ne(out.k_source))).sum()),
                    "k_sources": {str(a): int(b) for a, b in out.k_v3_source[scored_v3].value_counts().items()}})
     meta = {"k_corrected": k, "k_v3": v3,
             "residual": {**{a: b for a, b in rs.items() if a != "residual"}, "cutpoints": {"lower": cuts_r[0], "upper": cuts_r[1]},
