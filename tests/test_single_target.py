@@ -1,7 +1,8 @@
 import pytest
 
-from pipeline.single_target import (how_solved, partner_works_alone, stacked_rrr, success_regimen, validate_merge,
-                                    validate_pathway, validate_regimen, why_not_one_drug)
+from pipeline.single_target import (combination_beats_single, how_solved, partner_works_alone, retrieved_source,
+                                    stacked_rrr, success_regimen, validate_combos, validate_merge, validate_pathway,
+                                    validate_regimen, why_not_one_drug)
 
 
 def test_one_drug_reaching_half_solves_the_disease():
@@ -105,3 +106,63 @@ def test_a_combination_names_a_listed_partner_and_quotes_the_record():
                 {"regimen": "combination", "partner": "B", "partner_moiety_id": 2, "quote": "..."}):
         with pytest.raises(ValueError):
             validate_regimen(REGIMEN_RECORD, bad)
+
+
+def trial(**kw):
+    return {"relation": "parallel", "result": "met_primary", "stopped_for_safety": False, **kw}
+
+
+def test_a_winning_two_pathway_trial_safe_to_use_beats_single():
+    assert combination_beats_single([trial(result="missed_primary"), trial()])
+    assert combination_beats_single([trial(relation="independent")])
+
+def test_no_trials_or_only_losing_trials_do_not_beat_single():
+    assert not combination_beats_single([])
+    assert not combination_beats_single([trial(result="missed_primary")])
+
+def test_a_win_stopped_or_abandoned_for_safety_does_not_count():
+    assert not combination_beats_single([trial(stopped_for_safety=True)])
+
+def test_more_of_one_pathway_is_not_two_pathways():
+    assert not combination_beats_single([trial(relation="same_pathway")])
+
+
+def combo_output(**kw):
+    t = {"trial_name": "BE RADIANT", "nct_id": "NCT03536884", "pmid": "33891380", "year": 2021, "phase": "3",
+         "n_randomised": 743, "two_pathway_arm": "bimekizumab", "one_pathway_arm": "secukinumab",
+         "comparator_pathways": ["IL-17"], "added_pathway": "IL-17", "design": "head_to_head_multi_pathway",
+         "relation": "same_pathway", "primary_endpoint": "PASI 100 wk 16", "result": "met_primary",
+         "effect_measure": "risk_difference", "effect": 12.7, "ci_low": 5.8, "ci_high": 19.6, "effect_text": "",
+         "limited_by": "none", "stopped_for_safety": False, "sources": ["https://pubmed.ncbi.nlm.nih.gov/33891380/"],
+         "quote": "", **kw}
+    return {"trials": [t], "retrieved_urls": ["https://pubmed.ncbi.nlm.nih.gov/33891380"]}
+
+def test_a_trial_read_from_retrieved_pages_is_valid():
+    validate_combos({}, combo_output())
+    validate_combos({}, combo_output(nct_id=None))
+
+def test_a_source_cut_short_stands_for_the_retrieved_url_it_begins():
+    long = "https://www.researchgate.net/publication/371368790_Plain_language_summary_of_results_from_ORION-11"
+    assert retrieved_source(long[:80], [long]) == long
+    assert retrieved_source("https://pubmed.ncbi.nlm.nih.gov/33891380/", [long]) is None
+    assert retrieved_source("https://www.r", [long]) is None
+
+
+@pytest.mark.parametrize("bad", [
+    {"sources": ["https://example.org/not-retrieved"]},
+    {"sources": []},
+    {"nct_id": None, "pmid": None},
+    {"nct_id": "NCT123"},
+    {"relation": "parallel"},  # the added pathway is already the comparator's
+    {"ci_low": 20.0, "ci_high": 5.0},
+])
+
+def test_a_trial_without_retrieved_sources_or_with_inconsistent_fields_is_rejected(bad):
+    with pytest.raises(ValueError):
+        validate_combos({}, combo_output(**bad))
+
+def test_a_trial_listed_twice_is_rejected():
+    out = combo_output()
+    out["trials"] *= 2
+    with pytest.raises(ValueError):
+        validate_combos({}, out)
