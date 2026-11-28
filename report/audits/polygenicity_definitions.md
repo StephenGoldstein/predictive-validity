@@ -175,3 +175,23 @@ Neither registered hypothesis replicates. The power table put the mid effects at
 **Announcement, before running:** migration 172 adds one boolean column, `preclin.disease_polygenicity.drugged_large_effect`, and `pipeline.polygenicity drugged` fills it for the 531 profiled diseases (no other column changes). The report then reads the burden flag from the table instead of the 829 MB Open Targets download, which no other report step needs.
 
 Also fixed from the review, no ruling needed: the figure and the tertile table now sit on entries with a resolved target, the tests' denominator; the genetics ratio within the most polygenic tertile is fit and reported (the least polygenic cell is too small); the descriptive checks and the Pan-UKB heritability cross-check are now tabled in the appendix; the report refuses to run off the registered build or membership; a Catalog reload refuses to delete the LDSC runs without a flag.
+
+## Decision of 2026-11-26 (Melissa, issuecomment-7207708610) and the announcement of 2026-11-27 (issuecomment-7235417538)
+
+Her decision: (1) yes to the corrected-K sensitivity, the registered tertiles staying the primary; the write-up states the defect plainly (30 of the 64 Pan-UKB K values from a code neither the disease's own nor its parent; the gate comment's "45 through the three-character parent" was wrong) and reports how many diseases change tertile. (2) Disclose the GWAS-size confound and add a residualised score as a labelled post hoc: log10 score on log10 n_eff over the 114 scored diseases, tertiles on the residual, P1 and P2 top against bottom, two-sided, no Holm, after the readings; no matching on n_eff.
+
+Announcement as posted 2026-11-27 22:40 PST, before the database write:
+
+**Announcement, before running (2026-11-27, Stephen), on your decision of 2026-11-26.**
+
+- Migration 178 adds seven columns to `preclin.disease_polygenicity`, all for the corrected-K sensitivity and none registered: `k_corrected`, `k_corrected_source`, `k_corrected_code`, `k_corrected_via_parent`, `h2_liab_k_corrected`, `score_k_corrected`, `ldsc_status_k_corrected`. No existing column changes; the registered profile and membership stand.
+- `python -m pipeline.polygenicity k-corrected` fills them for the 531 profiled diseases from the stored LDSC runs: K re-chosen own-code-first with ICD-10 ranges expanded (a disease's own codes, then their three-character parents, then its MONDO descendants' codes, then theirs), the liability conversion and the score recomputed, the status re-derived (a disease that had no K and gains one is scored; one that loses its code is not).
+- The report then re-cuts tertiles over the diseases scored under the corrected K, runs P1–P3 with Holm within, reports it beside the primary with the count of diseases that change tertile, and states the defect plainly as you asked.
+- The residualised score needs no table change: log10 score on log10 n_eff over the scored diseases, tertiles on the residual, P1 and P2 two-sided, no Holm, labelled post hoc after the readings.
+- The rule the registered profile was built with stays in the code as `k_for_registered`, so a rebuild reproduces the registered columns beside the corrected ones. Your review findings on #191 go into the same push. (173–177 landed on main today, hence 178.)
+
+Applied 2026-11-27 22:43 PST: migration 178 (ledger hash 235998718e84); `k-corrected` filled 531 rows: the same 114 diseases scored under the corrected K; the code changes for 14 of the 64 scored diseases with a Pan-UKB K.
+
+## Independent K-code check — 2026-11-27 23:00 PST
+
+On Stephen's instruction a fresh reviewer graded every scored disease's prevalence code on the corrected profile: 55 correct, 38 defensible, 12 doubtful, 9 wrong of 114; 31 with K more than fivefold off; two structural causes (Pan-UKB's ICD-10 list has no I10; descendant tiers ordered by code length), both verified. Report: `report/audits/polygenicity_k_code_check.md`. The corrected-K sensitivity stays as announced; a K rule v3 is proposed on #147 for her ruling.

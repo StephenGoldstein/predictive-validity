@@ -620,7 +620,10 @@ POLYGENICITY_TESTS = {"P1": "P1: more \"target not causal\" stops per entry (Pha
                       "P3": "P3: smaller benefit of human genetic support (interaction on S4)"}
 POLYGENICITY_FAMILIES = {"gwas_size": "GWAS size (effective N as a covariate)",
                          "mendelian_form": "Mendelian form (none against a form), all unit diseases",
-                         "negative_control": "Negative control: stops unrelated to the disease's biology, two-sided"}
+                         "negative_control": "Negative control: stops unrelated to the disease's biology, two-sided",
+                         "k_corrected": "Corrected prevalence code (K), tertiles re-cut (decision of 2026-11-26)",
+                         "k_v3": "K rule v3 (phecodes through ICD-9, Pan-UKB before GBD, descendants pooled, chapter terms out), tertiles re-cut (announced 2026-11-27)",
+                         "post_hoc_residual": "Post hoc (2026-11-26): score residualised on GWAS size, tertiles re-cut, two-sided, no Holm"}
 
 
 def _polygenicity_rows(t: pd.DataFrame, names: dict) -> list[list]:
@@ -651,8 +654,8 @@ def polygenicity_sensitivities_table() -> str:
     for family, g in t.groupby("family", sort=False):
         for row in _polygenicity_rows(g, {"P1": "P1", "P2": "P2", "P3": "P3"}):
             rows.append([POLYGENICITY_FAMILIES.get(family, family)] + row)
-    cols = ["Sensitivity", "Test", "Ratio (95% CI)", "p (one-sided)", "p (Holm)", "Reading", "Exposed: events of entries",
-            "Reference: events of entries"]
+    cols = ["Sensitivity", "Test", "Ratio (95% CI)", "p (one-sided; two-sided where the row says so)", "p (Holm)", "Reading",
+            "Exposed: events of entries", "Reference: events of entries"]
     return table(pd.DataFrame(rows, columns=cols))
 
 
@@ -670,7 +673,9 @@ def polygenicity_tertiles_table() -> str:
 
 NO_SCORE_REASONS = {"no_study": "No GWAS study of the disease or a subtype", "no_sumstats": "No public harmonised summary statistics",
                     "not_european": "No study of at least 90% European ancestry", "targeted_array": "Targeted genotyping array only",
-                    "no_case_control": "No case-control study", "run_failed": "Summary statistics without effect sizes, or the LDSC run failed",
+                    "no_case_control": "No case-control study",
+                    "no_effect": "Summary statistics without a usable effect (an X-chromosome-only study, or p-values alone)",
+                    "run_failed": "The LDSC run failed",
                     "low_z": "Heritability estimate below z = 4", "zero_loci": "Heritability at z = 4 or more but no genome-wide significant locus",
                     "no_k": "No population prevalence (GBD or Pan-UKB)",
                     "out_of_bounds": "Liability-scale heritability outside (0, 1]"}

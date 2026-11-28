@@ -5,6 +5,8 @@
     python -m pipeline.polygenicity build        # every column: the runs, K, the score, Open Targets, O'Connor, Pan-UKB
     python -m pipeline.polygenicity counts       # scored diseases and entries against the candidates and the 531/2,275 base
     python -m pipeline.polygenicity check-unit   # every disease in today's unit has a row (exit 1 otherwise)
+    python -m pipeline.polygenicity drugged      # drugged_large_effect (migration 172)
+    python -m pipeline.polygenicity k-corrected  # the corrected-K sensitivity columns (migration 178); registered columns untouched
 
 Candidates: non-oncology, non-infectious diseases with a US-developed Phase 2 entry in 2008-2019 (the unit of #147,
 counted on the programme build of the day; a disease the unit gains later is added by rerunning choose, ldsc and
@@ -14,11 +16,18 @@ descendants, those with public harmonised summary statistics, parsed cases and c
 itself before a descendant; the largest effective sample size 4 / (1/cases + 1/controls). The status names the
 first filter that emptied the set.
 
-K, the population prevalence for the liability scale (k_for): the GBD cause the disease maps to by hand
+K, the population prevalence for the liability scale: the GBD cause the disease maps to by hand
 (pipeline/data/gbd_cause_mondo.csv, exact or broader), rate per 100,000 over 100,000, when under 0.5; else the
-Pan-UK Biobank European case fraction of the disease's ICD-10 code (its own or a descendant's, from MONDO's
-cross-references), the code with most cases, at least 100; else none, and the disease has no score. Liability
-h2 = h2_obs * K^2 (1-K)^2 / (P (1-P) phi(t)^2), t = Phi^-1(1-K), P the study's case fraction (Lee et al. 2011).
+Pan-UK Biobank European case fraction of an ICD-10 code from MONDO's cross-references, at least 100 cases; else none,
+and the disease has no score. Two rules choose the Pan-UKB code. The registered profile (gate of 2026-11-25) used
+k_for_registered: the disease's own codes and its MONDO descendants' in one pool, ranges unexpanded, each with its
+three-character parent, the code with most cases; the review of 2026-11-25 found this takes a descendant's unrelated
+code for 30 of the 64 scored diseases with a Pan-UKB K. The registered columns (k, k_source, k_code, k_via_parent,
+h2_liab, score, ldsc_status) stand as built and are rebuilt by that rule. The corrected rule, k_for, takes the
+disease's own codes first (ranges expanded), then their parents, then the descendants' codes, then theirs; it fills
+the *_k_corrected columns of migration 178 for the corrected-K sensitivity (Melissa's decision of 2026-11-26).
+Liability h2 = h2_obs * K^2 (1-K)^2 / (P (1-P) phi(t)^2), t = Phi^-1(1-K), P the study's case fraction (Lee et al.
+2011).
 An estimate exists when the run is ok on a genome-wide set of SNPs, h2_z = h2_obs / se >= 4 (Pan-UKB's
 significant_z threshold) and 0 < h2_liab <= 1; the score is loci / h2_liab.
 
@@ -151,34 +160,179 @@ def liability_h2(h2_obs: float, p: float, k: float) -> float:
     return h2_obs * k ** 2 * (1 - k) ** 2 / (p * (1 - p) * norm.pdf(t) ** 2)
 
 
-def k_for(mondo_id: str, gbd_map: dict, gbd: dict, icd_codes: set[str], panukb: pd.DataFrame,
-          descendant_codes: set[str] = frozenset()) -> tuple[float | None, str, str | None, bool]:
-    """(K, source, Pan-UKB code, via parent): the GBD cause's rate when the disease maps exactly or to a broader cause
-    and K < 0.5; else the Pan-UKB European case fraction by tiers: the disease's own ICD-10 codes, their three-character
-    parents, then its MONDO descendants' codes, then their parents; within a tier the code with most cases among those
-    with at least MIN_UKB_CASES; else none. (Until the review of 2026-11-25 all four tiers were one pool, which took
-    an unrelated descendant's code for about half of the scored diseases with a Pan-UKB K; the registered profile was
-    built that way and stands as fixed, with this rule for the corrected-K sensitivity.)"""
+def gbd_k(mondo_id: str, gbd_map: dict, gbd: dict) -> float | None:
+    """The GBD cause's rate as a prevalence when the disease maps exactly or to a broader cause and 0 < K < K_MAX."""
     relation, cause = gbd_map.get(mondo_id, ("none", None))
     if relation in ("exact", "broader") and cause in gbd:
         k = gbd[cause] / 1e5
         if 0 < k < K_MAX:
-            return k, "gbd", None, False
+            return k
+    return None
+
+
+def k_for(mondo_id: str, gbd_map: dict, gbd: dict, icd_codes: set[str], panukb: pd.DataFrame,
+          descendant_codes: set[str] = frozenset()) -> tuple[float | None, str, str | None, bool]:
+    """The corrected rule (review of 2026-11-25; the *_k_corrected columns). (K, source, Pan-UKB code, via parent):
+    the GBD prevalence (gbd_k); else the Pan-UKB European case fraction by tiers: the disease's own ICD-10 codes, their
+    three-character parents, then its MONDO descendants' codes, then their parents; within a tier the code with most
+    cases among those with at least MIN_UKB_CASES; else none. Via parent is true only for the second tier (the parent
+    of one of the disease's own codes), never for a descendant's code (review of 2026-11-27)."""
+    k = gbd_k(mondo_id, gbd_map, gbd)
+    if k is not None:
+        return k, "gbd", None, False
     own, desc = set(icd_codes), set(descendant_codes)
-    for tier in (own, with_parents(own) - own, desc, with_parents(desc) - desc):
+    for tier, via_parent in ((own, False), (with_parents(own) - own, True), (desc, False), (with_parents(desc) - desc, False)):
         rows = panukb[panukb.phenocode.isin(tier) & (panukb.n_cases_EUR >= MIN_UKB_CASES)]
         if not len(rows):
             continue
         r = rows.sort_values("n_cases_EUR", ascending=False).iloc[0]
         k = float(r.n_cases_EUR / (r.n_cases_EUR + r.n_controls_EUR))
         if 0 < k < K_MAX:
-            return k, "panukb", str(r.phenocode), str(r.phenocode) not in own
+            return k, "panukb", str(r.phenocode), via_parent
+    return None, "none", None, False
+
+
+def k_for_registered(mondo_id: str, gbd_map: dict, gbd: dict, icd_codes: set[str], panukb: pd.DataFrame) \
+        -> tuple[float | None, str, str | None, bool]:
+    """The rule the registered profile was built with (gate of 2026-11-25), kept so a rebuild reproduces the registered
+    columns: the GBD prevalence (gbd_k); else, over the disease's own ICD-10 codes and its MONDO descendants' in one
+    pool, ranges unexpanded, each with its three-character parent, the Pan-UKB row with most cases, kept when it has
+    MIN_UKB_CASES and 0 < K < K_MAX. Via parent here means only that the code is not one of the pooled codes. The review
+    of 2026-11-25 found this takes a descendant's unrelated code for 30 of the 64 scored diseases with a Pan-UKB K;
+    k_for is the corrected rule."""
+    k = gbd_k(mondo_id, gbd_map, gbd)
+    if k is not None:
+        return k, "gbd", None, False
+    rows = panukb[panukb.phenocode.isin(with_parents(icd_codes))]
+    if len(rows):
+        r = rows.sort_values("n_cases_EUR", ascending=False).iloc[0]
+        k = float(r.n_cases_EUR / (r.n_cases_EUR + r.n_controls_EUR))
+        if r.n_cases_EUR >= MIN_UKB_CASES and 0 < k < K_MAX:
+            return k, "panukb", str(r.phenocode), str(r.phenocode) not in icd_codes
     return None, "none", None, False
 
 
 def with_parents(codes: set[str]) -> set[str]:
     """The codes with the three-character parent of each."""
     return {c for code in codes for c in (code, code[:3])}
+
+
+ICD9_RANGE = re.compile(r"^(\d{3})-(\d{3})$")
+MIN_UKB_CASES_OVER_GBD = 1_000   # v3: a Pan-UKB code of the disease itself with this many cases is taken before GBD
+CATEGORY_RANGE = 10              # v3: an own cross-reference spanning this many codes marks a chapter-level term
+CATEGORY_DESCENDANTS = 30        # v3: more descendant codes than this marks one too
+
+
+def expand_icd9(code: str) -> set[str]:
+    """An ICD-9 cross-reference as the codes it names: a range like 401-405 lists every three-digit code in it; a
+    single code (with or without a decimal part) stays as it is."""
+    m = ICD9_RANGE.match(code)
+    if not m:
+        return {code}
+    return {str(i) for i in range(int(m.group(1)), int(m.group(2)) + 1)}
+
+
+def phecode_matches(icd9_codes: set[str], phecodes: set[str]) -> set[str]:
+    """The Pan-UKB phecodes the ICD-9 codes reach: the exact string when it is a phecode, else its integer part
+    (phecodes are numbered from ICD-9: 401.9 unspecified essential hypertension reaches 401 Hypertension)."""
+    out = set()
+    for c in icd9_codes:
+        if c in phecodes:
+            out.add(c)
+        elif c.split(".")[0] in phecodes:
+            out.add(c.split(".")[0])
+    return out
+
+
+def is_category(own_icd10_raw: set[str], own_icd9_raw: set[str], n_descendant_codes: int) -> bool:
+    """A MONDO term that stands for a chapter rather than a disease (eye disorder, cardiovascular disorder, injury):
+    an own cross-reference that is a range of CATEGORY_RANGE codes or more, or more than CATEGORY_DESCENDANTS
+    descendant codes. Under v3 such a term gets no K rather than one member's."""
+    spans = [len(expand_icd(c)) for c in own_icd10_raw] + [len(expand_icd9(c)) for c in own_icd9_raw]
+    return any(s >= CATEGORY_RANGE for s in spans) or n_descendant_codes > CATEGORY_DESCENDANTS
+
+
+def _best(panukb: pd.DataFrame, codes: set[str], floor: int = MIN_UKB_CASES):
+    rows = panukb[panukb.phenocode.isin(codes) & (panukb.n_cases_EUR >= floor)]
+    if not len(rows):
+        return None
+    r = rows.sort_values(["n_cases_EUR", "phenocode"], ascending=[False, True]).iloc[0]
+    k = float(r.n_cases_EUR / (r.n_cases_EUR + r.n_controls_EUR))
+    return (k, str(r.phenocode), int(r.n_cases_EUR)) if 0 < k < K_MAX else None
+
+
+def k_for_v3(mondo_id: str, gbd_map: dict, gbd: dict, own_icd10: set[str], own_icd9: set[str], desc_icd10: set[str],
+             desc_icd9: set[str], panukb: pd.DataFrame, phecodes: pd.DataFrame, category: bool = False) \
+        -> tuple[float | None, str, str | None, bool]:
+    """Rule v3 (announced on #147, 2026-11-27, after the independent code check; one row per disease in
+    preclin.disease_polygenicity_k). (K, source, code, via parent). A category term gets none. Otherwise, in order:
+    the disease's own three-character ICD-10 codes (ranges expanded) and the phecodes its own ICD-9 codes reach, as one
+    pool; then the three-character parents of its own ICD-10 codes (via parent); a pick with MIN_UKB_CASES_OVER_GBD
+    cases or more is taken, else the GBD prevalence when the disease maps to a cause, else the pick when it has
+    MIN_UKB_CASES; then its MONDO descendants' codes, their parents and their phecodes as one pool; else none."""
+    if category:
+        return None, "none", None, False
+    phe = set(phecodes.phenocode.astype(str))
+    ukb_all = pd.concat([panukb, phecodes], ignore_index=True)
+    own = _best(ukb_all, set(own_icd10) | phecode_matches(set(own_icd9), phe))
+    via = False
+    if own is None:
+        own = _best(ukb_all, with_parents(set(own_icd10)) - set(own_icd10))
+        via = own is not None
+    if own is not None and own[2] >= MIN_UKB_CASES_OVER_GBD:
+        return own[0], "panukb", own[1], via
+    k = gbd_k(mondo_id, gbd_map, gbd)
+    if k is not None:
+        return k, "gbd", None, False
+    if own is not None:
+        return own[0], "panukb", own[1], via
+    pooled = set(desc_icd10) | with_parents(set(desc_icd10)) | phecode_matches(set(desc_icd9), phe)
+    d = _best(ukb_all, pooled)
+    if d is not None:
+        return d[0], "panukb", d[1], False
+    return None, "none", None, False
+
+
+def icd9_xrefs() -> pd.DataFrame:
+    """MONDO's ICD-9 cross-references (term_id, code as written: 401, 401.9 or a range 401-405)."""
+    return frame.query("""SELECT term_id, split_part(xref_id, ':', 2) AS code FROM preclin.ontology_xref
+                          WHERE ontology = 'MONDO' AND xref_id LIKE 'ICD9:%%'""")
+
+
+def panukb_phecodes() -> pd.DataFrame:
+    """Pan-UKB's phecode phenotypes with European cases and controls (a sex-limited phecode counts within its sex)."""
+    ph = pd.read_csv(os.path.join(PANUKB, "phenotype_manifest.tsv.bgz"), sep="\t", compression="gzip", low_memory=False)
+    ph = ph[ph.trait_type.eq("phecode") & ph.n_cases_EUR.notna() & ph.n_controls_EUR.notna()]
+    return ph[["phenocode", "n_cases_EUR", "n_controls_EUR"]].assign(phenocode=lambda x: x.phenocode.astype(str))
+
+
+K_RULES = ("registered", "own_first", "v3")
+K_CORRECTED_COLS = ("k_corrected", "k_corrected_source", "k_corrected_code", "k_corrected_via_parent",
+                    "h2_liab_k_corrected", "score_k_corrected", "ldsc_status_k_corrected")
+RUN_FIELDS = ("ldsc_status", "h2_obs", "h2_obs_se", "loci", "n_cases", "n_controls")
+
+
+def corrected_k_fields(row: dict, n_snps, k: float | None) -> dict:
+    """The K-dependent columns of the corrected-K sensitivity for one profiled disease (Melissa's decision of
+    2026-11-26): the stored run (RUN_FIELDS of the registered profile) rescored under the corrected K through
+    score_fields; a disease whose run gave no estimate keeps its registered status."""
+    none = {"h2_liab_k_corrected": None, "score_k_corrected": None, "ldsc_status_k_corrected": row["ldsc_status"]}
+    if row.get("h2_obs") is None or row.get("n_cases") is None or row.get("n_controls") is None:
+        return none
+    p = float(row["n_cases"]) / (float(row["n_cases"]) + float(row["n_controls"]))
+    f = score_fields(float(row["h2_obs"]), float(row["h2_obs_se"]), n_snps, int(row["loci"]), p, k)
+    return {"h2_liab_k_corrected": f["h2_liab"], "score_k_corrected": f["score"], "ldsc_status_k_corrected": f["ldsc_status"]}
+
+
+def _none(v):
+    """None for SQL NULL however pandas holds it (None, NaN); the value otherwise."""
+    return None if v is None or (isinstance(v, float) and np.isnan(v)) else v
+
+
+def icd_xrefs() -> pd.DataFrame:
+    """MONDO's ICD-10 cross-references (term_id, code with the dot removed; ranges as the source writes them)."""
+    return frame.query("""SELECT term_id, replace(split_part(xref_id, ':', 2), '.', '') AS code FROM preclin.ontology_xref
+                          WHERE ontology = 'MONDO' AND (xref_id LIKE 'ICD10CM:%%' OR xref_id LIKE 'ICD10WHO:%%')""")
 
 
 def failed_status(run_status: str | None) -> str:
@@ -361,8 +515,7 @@ def build(_args) -> None:
     runs = runs.set_index("gcst")
     studies = frame.query("SELECT gcst, cases, controls, mondo_ids FROM preclin.gwas_catalog_study WHERE mondo_ids <> '{}'")
     studies = studies.set_index("gcst")
-    xrefs = frame.query("""SELECT term_id, replace(split_part(xref_id, ':', 2), '.', '') AS code FROM preclin.ontology_xref
-                           WHERE ontology = 'MONDO' AND (xref_id LIKE 'ICD10CM:%%' OR xref_id LIKE 'ICD10WHO:%%')""")
+    xrefs = icd_xrefs()
     desc = descendants_table(mondo_tables()[0])
     mondo = Mondo()
     gmap, rates = gbd_map(), gbd_rates()
@@ -381,8 +534,12 @@ def build(_args) -> None:
         row = {"mondo_id": d.mondo_id, "ldsc_status": d.ldsc_status}
         row["gwas_studies"], row["gws_associations"], row["loci_catalog"] = loci_catalog(assoc, mem, lookup)
         own, desc_codes = own_and_descendant_codes(d.mondo_id, mem, xrefs)
-        k, source, code, via_parent = k_for(d.mondo_id, gmap, rates, own, ukb, desc_codes)
+        pooled = set(xrefs.code[xrefs.term_id.isin(mem)])
+        k, source, code, via_parent = k_for_registered(d.mondo_id, gmap, rates, pooled, ukb)   # the registered columns
         row.update({"k": k, "k_source": source, "k_code": code, "k_via_parent": via_parent})
+        k2, source2, code2, via2 = k_for(d.mondo_id, gmap, rates, own, ukb, desc_codes)        # the corrected-K sensitivity
+        row.update({"k_corrected": k2, "k_corrected_source": source2, "k_corrected_code": code2, "k_corrected_via_parent": via2})
+        n_snps_run = None
         gwas, mend, form = gene_counts(d.mondo_id, mondo, mem, evidence)
         row.update({"gwas_genes": gwas, "mendelian_genes": mend, "mendelian_form": form, "me_log10": me_map.get(d.mondo_id)})
         h = ukb_h2[ukb_h2.phenocode.isin(with_parents(own))]
@@ -398,9 +555,11 @@ def build(_args) -> None:
             if r is None or r.status != "ok":
                 row["ldsc_status"] = failed_status(None if r is None else r.status)
             else:
+                n_snps_run = r.n_snps
                 row.update({"h2_obs": float(r.h2_obs), "h2_obs_se": float(r.h2_obs_se), "intercept": r.intercept,
                             "loci": int(r.loci), "concentration": r.concentration})
                 row.update(score_fields(float(r.h2_obs), float(r.h2_obs_se), r.n_snps, int(r.loci), cases / (cases + controls), k))
+        row.update(corrected_k_fields({c: row.get(c) for c in RUN_FIELDS}, n_snps_run, k2))
         if cases is None:
             own = studies[studies.mondo_ids.map(lambda m: bool(set(m) & mem))].cases.dropna()
             cases = int(own.max()) if len(own) else None
@@ -410,7 +569,7 @@ def build(_args) -> None:
     cols = ["gwas_studies", "gws_associations", "loci_catalog", "n_cases", "n_controls", "n_eff", "h2_obs", "h2_obs_se",
             "intercept", "h2_z", "k", "k_source", "h2_liab", "ldsc_status", "loci", "concentration", "score", "log10_score",
             "gwas_genes", "gwas_genes_per_10k_cases", "mendelian_genes", "mendelian_form", "me_log10", "panukb_h2_liab",
-            "panukb_h2_z", "k_code", "k_via_parent", "source_release_ids"]
+            "panukb_h2_z", "k_code", "k_via_parent", *K_CORRECTED_COLS, "source_release_ids"]
     with llm.connect() as conn, conn.cursor() as cur:
         for row in out:
             cur.execute(f"UPDATE preclin.disease_polygenicity SET {', '.join(f'{c} = %s' for c in cols)}, built_at = now() "
@@ -471,11 +630,79 @@ def drugged(_args) -> None:
     print(f"drugged_large_effect: {int(flags.drugged_large_effect.sum())} of {len(flags)} diseases")
 
 
+def k_corrected(_args) -> None:
+    """Fill the corrected-K sensitivity columns (K_CORRECTED_COLS, migration 178) for every profiled disease from the
+    stored runs under the corrected rule, leaving every registered column as it is (Melissa's decision of 2026-11-26)."""
+    prof = frame.query(f"""SELECT mondo_id, gcst, k_source, k_code, {', '.join(RUN_FIELDS)}
+                           FROM preclin.disease_polygenicity ORDER BY mondo_id""")
+    n_snps = dict(frame.query("SELECT gcst, n_snps FROM preclin.ldsc_run").itertuples(index=False, name=None))
+    xrefs, desc, gmap, rates, ukb = icd_xrefs(), descendants_table(mondo_tables()[0]), gbd_map(), gbd_rates(), panukb_manifest()
+    rows = []
+    for d in prof.itertuples():
+        own, desc_codes = own_and_descendant_codes(d.mondo_id, members(d.mondo_id, desc), xrefs)
+        k, source, code, via_parent = k_for(d.mondo_id, gmap, rates, own, ukb, desc_codes)
+        f = corrected_k_fields({c: _none(getattr(d, c)) for c in RUN_FIELDS}, _none(n_snps.get(d.gcst)), k)
+        rows.append({"k_corrected": k, "k_corrected_source": source, "k_corrected_code": code, "k_corrected_via_parent": via_parent,
+                     **f, "mondo_id": d.mondo_id})
+    with llm.connect() as conn, conn.cursor() as cur:
+        cur.executemany(f"UPDATE preclin.disease_polygenicity SET {', '.join(f'{c} = %s' for c in K_CORRECTED_COLS)} WHERE mondo_id = %s",
+                        [tuple(_py(r[c]) for c in K_CORRECTED_COLS) + (r["mondo_id"],) for r in rows])
+        conn.commit()
+    t = pd.DataFrame(rows).merge(prof[["mondo_id", "ldsc_status", "k_source", "k_code"]], on="mondo_id")
+    print(t.ldsc_status_k_corrected.value_counts().to_string())
+    ukb_scored = t.k_source.eq("panukb") & t.ldsc_status.eq("ok")
+    changed = ukb_scored & (t.k_corrected_code.ne(t.k_code) | t.k_corrected_source.ne("panukb"))
+    print(f"K code changed for {int(changed.sum())} of {int(ukb_scored.sum())} scored diseases with a Pan-UKB K; scored under the "
+          f"corrected K: {int(t.ldsc_status_k_corrected.eq('ok').sum())} (registered {int(t.ldsc_status.eq('ok').sum())}); "
+          f"via parent (corrected rule): {int(t.k_corrected_via_parent.fillna(False).astype(bool).sum())}")
+
+
+def k_rules(_args) -> None:
+    """Fill preclin.disease_polygenicity_k (migration 179): one row per profiled disease per rule. `registered` and
+    `own_first` copy the profile's own columns; `v3` is k_for_v3 on the stored runs (announced on #147 2026-11-27).
+    The profile's columns are not touched."""
+    prof = frame.query(f"""SELECT mondo_id, gcst, k, k_source, k_code, k_via_parent, h2_liab, score, {', '.join(K_CORRECTED_COLS)},
+                                  {', '.join(RUN_FIELDS)} FROM preclin.disease_polygenicity ORDER BY mondo_id""")
+    n_snps = dict(frame.query("SELECT gcst, n_snps FROM preclin.ldsc_run").itertuples(index=False, name=None))
+    x10, x9, desc = icd_xrefs(), icd9_xrefs(), descendants_table(mondo_tables()[0])
+    gmap, rates, ukb, phe = gbd_map(), gbd_rates(), panukb_manifest(), panukb_phecodes()
+    rows = []
+    for d in prof.itertuples():
+        mem = members(d.mondo_id, desc)
+        own10, desc10 = own_and_descendant_codes(d.mondo_id, mem, x10)
+        own9_raw = set(x9.code[x9.term_id.eq(d.mondo_id)])
+        own9 = {c for code in own9_raw for c in expand_icd9(code)}
+        desc9 = {c for code in x9.code[x9.term_id.isin(mem - {d.mondo_id})] for c in expand_icd9(code)} - own9
+        cat = is_category(set(x10.code[x10.term_id.eq(d.mondo_id)]), own9_raw, len(desc10 | desc9))
+        run = {c: _none(getattr(d, c)) for c in RUN_FIELDS}
+        k, source, code, via = k_for_v3(d.mondo_id, gmap, rates, own10, own9, desc10, desc9, ukb, phe, category=cat)
+        f = corrected_k_fields(run, _none(n_snps.get(d.gcst)), k)
+        rows.append((d.mondo_id, "v3", k, source, code, via, f["h2_liab_k_corrected"], f["score_k_corrected"], f["ldsc_status_k_corrected"], cat))
+        rows.append((d.mondo_id, "registered", _none(d.k), d.k_source, _none(d.k_code), _none(d.k_via_parent), _none(d.h2_liab), _none(d.score), d.ldsc_status, False))
+        rows.append((d.mondo_id, "own_first", _none(d.k_corrected), d.k_corrected_source, _none(d.k_corrected_code), _none(d.k_corrected_via_parent),
+                     _none(d.h2_liab_k_corrected), _none(d.score_k_corrected), d.ldsc_status_k_corrected, False))
+    with llm.connect() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM preclin.disease_polygenicity_k")
+        execute_values(cur, """INSERT INTO preclin.disease_polygenicity_k
+                               (mondo_id, rule, k, k_source, k_code, k_via_parent, h2_liab, score, ldsc_status, category) VALUES %s""",
+                       [tuple(_py(v) for v in r) for r in rows])
+        conn.commit()
+    t = pd.DataFrame(rows, columns=["mondo_id", "rule", "k", "k_source", "k_code", "k_via_parent", "h2_liab", "score", "ldsc_status", "category"])
+    v3 = t[t.rule.eq("v3")].set_index("mondo_id")
+    reg = t[t.rule.eq("registered")].set_index("mondo_id")
+    print(v3.ldsc_status.value_counts().to_string())
+    scored = reg.ldsc_status.eq("ok")
+    print(f"v3: scored {int(v3.ldsc_status.eq('ok').sum())} (registered {int(scored.sum())}); category terms {int(v3.category.sum())} "
+          f"({int((v3.category & scored).sum())} scored under the registered rule); K sources among the registered scored: "
+          f"{v3.k_source[scored].value_counts().to_dict()}; code or source changed for "
+          f"{int((scored & (v3.k_code.fillna('') != reg.k_code.fillna('')) | (scored & (v3.k_source != reg.k_source))).sum())} of {int(scored.sum())}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name, fn in (("load-gbd", load_gbd), ("choose", choose), ("build", build), ("counts", counts), ("check-unit", check_unit),
-                     ("drugged", drugged)):
+                     ("drugged", drugged), ("k-corrected", k_corrected), ("k-rules", k_rules)):
         sub.add_parser(name).set_defaults(fn=fn)
     args = parser.parse_args()
     args.fn(args)

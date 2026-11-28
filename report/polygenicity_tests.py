@@ -42,8 +42,10 @@ def frame_with_outcomes(d: pd.DataFrame, u: pd.DataFrame, cuts: tuple[float, flo
     from report.polygenicity import tertile  # noqa: PLC0415
     e = d[d.us_site & d.phase.between(2, 3) & d.mondo_id.isin(u.mondo_id)].copy()
     e = with_modes(traced_stops(e))
+    u, _ = alternative_tertiles(u, cuts)
     cols = ["mondo_id", "score", "log10_score", "mendelian_form", "n_eff", "ldsc_status", "scored",
-            "k_source", "h2_z", "h2_liab", "loci", "loci_catalog", "gwas_genes_per_10k_cases", "me_log10", "label"]
+            "k_source", "h2_z", "h2_liab", "loci", "loci_catalog", "gwas_genes_per_10k_cases", "me_log10", "label",
+            "tertile_k", "tertile_v3", "tertile_resid"]
     e = e.merge(u[[c for c in cols if c in u.columns]], on="mondo_id", how="left")
     e["tertile"] = tertile(e.score.where(e.scored.fillna(False)), cuts)
     e["genetics"] = (e.g3 > 0).astype(float)
@@ -56,6 +58,72 @@ def frame_with_outcomes(d: pd.DataFrame, u: pd.DataFrame, cuts: tuple[float, flo
     t = stop_causes.load()
     e["stop_unrelated"] = k.map(dict(zip(t.key, t.likely.isin(UNRELATED)))).fillna(False).astype(float)
     return e
+
+
+def residual_score(u: pd.DataFrame) -> dict:
+    """The post hoc of Melissa's decision of 2026-11-26: log10 score regressed on log10 effective sample size over
+    the scored diseases by least squares; the per-disease residual (indexed by mondo_id) and the fit."""
+    s = u[u.scored.fillna(False).astype(bool) & u.log10_score.notna() & u.n_eff.notna()]
+    x, y = np.log10(s.n_eff.astype(float).values), s.log10_score.astype(float).values
+    slope, intercept = np.polyfit(x, y, 1)
+    resid = y - (intercept + slope * x)
+    r2 = float(1 - resid.var() / y.var()) if len(y) > 1 and y.var() > 0 else None
+    return {"diseases": int(len(s)), "slope": float(slope), "intercept": float(intercept), "r2": r2,
+            "residual": pd.Series(resid, index=s.mondo_id.values)}
+
+
+def tertile_changes(u: pd.DataFrame, a: str, b: str) -> dict:
+    """How many diseases sit in a different tertile under cut `b` than under cut `a`: moves between tertiles,
+    diseases scored under `a` but not `b` (lost), under `b` but not `a` (gained), and which."""
+    moved = u[u[a].ne(u[b])]
+    return {"changed": int(len(moved)), "between_tertiles": int((moved[a].ne("none") & moved[b].ne("none")).sum()),
+            "lost_score": int((moved[a].ne("none") & moved[b].eq("none")).sum()),
+            "gained_score": int((moved[a].eq("none") & moved[b].ne("none")).sum()), "diseases": sorted(moved.mondo_id)}
+
+
+def alternative_tertiles(u: pd.DataFrame, cuts: tuple[float, float]) -> tuple[pd.DataFrame, dict]:
+    """Per unit disease, beside the registered tertile (`cuts` on the stored score): the corrected-K tertile, re-cut
+    over the diseases scored under the corrected K (score_k_corrected, migration 178; the decision of 2026-11-26),
+    and the residual tertile, re-cut on the score residualised on GWAS size; with each cut's facts and the diseases
+    that change tertile. An unfilled corrected profile is a loud error, not a silent 'none'."""
+    from report.polygenicity import cutpoints, tertile  # noqa: PLC0415
+    if "score_k_corrected" not in u.columns or u.ldsc_status_k_corrected.isna().all():
+        raise RuntimeError("preclin.disease_polygenicity's *_k_corrected columns are not filled: apply migration 178 and run "
+                           "`python -m pipeline.polygenicity k-corrected`")
+    out = u.copy()
+    scored = out.scored.fillna(False).astype(bool)
+    out["tertile"] = tertile(out.score.where(scored), cuts)
+    scored_k = out.ldsc_status_k_corrected.eq("ok") & out.score_k_corrected.notna()
+    cuts_k = cutpoints(out.score_k_corrected[scored_k])
+    out["tertile_k"] = tertile(out.score_k_corrected.where(scored_k), cuts_k)
+    rs = residual_score(out)
+    resid = out.mondo_id.map(rs["residual"])
+    cuts_r = cutpoints(resid)
+    out["tertile_resid"] = tertile(resid, cuts_r)
+    k = {"scored_diseases": int(scored_k.sum()), "cutpoints": {"lower": cuts_k[0], "upper": cuts_k[1]},
+         "changes": tertile_changes(out, "tertile", "tertile_k")}
+    if "k_corrected_code" in out.columns:   # the real profile: how many scored Pan-UKB codes the corrected rule changes
+        ukb = scored & out.k_source.eq("panukb")
+        k.update({"panukb_scored": int(ukb.sum()),
+                  "code_changed": int((ukb & (out.k_corrected_code.ne(out.k_code) | out.k_corrected_source.ne("panukb"))).sum()),
+                  "via_parent": int(out.k_corrected_via_parent.fillna(False).astype(bool)[scored_k].sum()),
+                  "k_sources": {str(a): int(b) for a, b in out.k_corrected_source[scored_k].value_counts().items()}})
+    # rule v3 (preclin.disease_polygenicity_k, migration 179; announced on #147 2026-11-27 after the independent code check)
+    if "score_v3" not in out.columns or out.ldsc_status_v3.isna().all():
+        raise RuntimeError("preclin.disease_polygenicity_k has no v3 rows: apply migration 179 and run `python -m pipeline.polygenicity k-rules`")
+    scored_v3 = out.ldsc_status_v3.eq("ok") & out.score_v3.notna()
+    cuts_v3 = cutpoints(out.score_v3[scored_v3])
+    out["tertile_v3"] = tertile(out.score_v3.where(scored_v3), cuts_v3)
+    v3 = {"scored_diseases": int(scored_v3.sum()), "cutpoints": {"lower": cuts_v3[0], "upper": cuts_v3[1]},
+          "changes": tertile_changes(out, "tertile", "tertile_v3"),
+          "category_scored": int((out.category_v3.fillna(False).astype(bool) & scored).sum())}
+    if "k_v3_code" in out.columns:
+        v3.update({"code_changed": int((scored & (out.k_v3_code.ne(out.k_code) | out.k_v3_source.ne(out.k_source))).sum()),
+                   "k_sources": {str(a): int(b) for a, b in out.k_v3_source[scored_v3].value_counts().items()}})
+    meta = {"k_corrected": k, "k_v3": v3,
+            "residual": {**{a: b for a, b in rs.items() if a != "residual"}, "cutpoints": {"lower": cuts_r[0], "upper": cuts_r[1]},
+                         "changes": tertile_changes(out, "tertile", "tertile_resid")}}
+    return out, meta
 
 
 def cohort(d: pd.DataFrame, outcome: str, levels: tuple[str, str] = ("top", "bottom"), col: str = "tertile") -> pd.DataFrame:
@@ -153,12 +221,32 @@ def negative_control(d: pd.DataFrame, covars=COVARS_23) -> dict:
 
 def sensitivities(d: pd.DataFrame) -> dict:
     """The sensitivities as amended on 2026-11-24: GWAS size and the Mendelian form, each P1-P3 with Holm within
-    itself, and the negative control (one two-sided test outside any family)."""
+    itself, and the negative control (one two-sided test outside any family); and, from the decision of 2026-11-26,
+    the corrected K (tertile_k: the profile rescored under the own-code-first prevalence code, tertiles re-cut),
+    P1-P3 with Holm within."""
     if "mendelian_level" not in d.columns:
         d = d.assign(mendelian_level=np.where(d.mendelian_form.fillna(False).astype(bool), "yes", "no"))
     return {"gwas_size": registered(d, extra=("log10_n_eff",)),
             "mendelian_form": registered(d, col="mendelian_level", levels=("no", "yes")),
-            "negative_control": {"P1": negative_control(d)}}
+            "negative_control": {"P1": negative_control(d)},
+            "k_corrected": registered(d, col="tertile_k"),
+            "k_v3": registered(d, col="tertile_v3")}
+
+
+def post_hoc(d: pd.DataFrame, col: str = "tertile_resid") -> dict:
+    """The post hoc of the decision of 2026-11-26, added after the readings: P1 and P2 on the tertiles of the score
+    residualised on GWAS size, top against bottom, p two-sided, no Holm, outside the registered family; the direction
+    is read against the registered one."""
+    out = {}
+    for k, fn in (("P1", p1), ("P2", p2)):
+        t = {**fn(d, col=col), "sides": 2}
+        if "rr" in t:
+            t["reading"] = "association" if t["p"] < ALPHA else "no association"
+            t["direction"] = "registered" if SIDES[k] * np.log(t["rr"]) > 0 else "opposite"
+        else:
+            t["reading"] = "not estimable"
+        out[k] = t
+    return out
 
 
 def power_simulation(d: pd.DataFrame, reps: int = 200, seed: int = 0, disease_sd: float = 0.5,
@@ -323,19 +411,33 @@ def numbers(e: pd.DataFrame, primary: dict, sens: dict, desc: dict, cuts, extra:
 def run_tests(d: pd.DataFrame, u: pd.DataFrame, extra: dict | None = None) -> dict:
     from report import polygenicity as pg  # noqa: PLC0415
     e = frame_with_outcomes(d, u, pg.CUTPOINTS)
+    u2, alt = alternative_tertiles(u, pg.CUTPOINTS)
     primary = registered(e)
     sens = sensitivities(e)
+    post = {"residual_gwas_size": {**alt["residual"], "tests": post_hoc(e)}}
     desc = descriptives(e, u)
     results_table({"primary": primary}).to_csv(os.path.join(pg.OUT, "tests.csv"), index=False)
-    results_table(sens).to_csv(os.path.join(pg.OUT, "sensitivities.csv"), index=False)
+    results_table({**sens, "post_hoc_residual": post["residual_gwas_size"]["tests"]}).to_csv(os.path.join(pg.OUT, "sensitivities.csv"), index=False)
     rates(e, "tertile").to_csv(os.path.join(pg.OUT, "tertiles.csv"), index=False)
+    rates(e, "tertile_k").to_csv(os.path.join(pg.OUT, "tertiles_k_corrected.csv"), index=False)
+    rates(e, "tertile_v3").to_csv(os.path.join(pg.OUT, "tertiles_v3.csv"), index=False)
+    cols = ["mondo_id", "label", "bio_area", "entries", "ldsc_status", "k", "k_source", "k_code", "k_via_parent", "score", "tertile",
+            "k_corrected", "k_corrected_source", "k_corrected_code", "k_corrected_via_parent", "h2_liab_k_corrected",
+            "score_k_corrected", "ldsc_status_k_corrected", "tertile_k",
+            "k_v3", "k_v3_source", "k_v3_code", "k_v3_via_parent", "h2_liab_v3", "score_v3", "ldsc_status_v3", "category_v3", "tertile_v3",
+            "n_eff", "tertile_resid"]
+    u2[[c for c in cols if c in u2.columns]].to_csv(os.path.join(pg.OUT, "k_corrected.csv"), index=False)
     pd.DataFrame(desc["area"]).to_csv(os.path.join(pg.OUT, "area.csv"), index=False)
     pd.DataFrame(desc["no_score"].get("status", [])).to_csv(os.path.join(pg.OUT, "no_score.csv"), index=False)
-    n = numbers(e, primary, sens, desc, pg.CUTPOINTS, extra, pg.BUILD_ID, pg.COMMENT_ID)
+    n = numbers(e, primary, sens, desc, pg.CUTPOINTS,
+                {**(extra or {}), "k_corrected": alt["k_corrected"], "k_v3": alt["k_v3"], "post_hoc": post}, pg.BUILD_ID, pg.COMMENT_ID)
     with open(os.path.join(pg.OUT, "numbers.json"), "w") as f:
         json.dump(jsonable(n), f, indent=1)
     for k, t in primary.items():
         print(k, t.get("rr"), t.get("p_one_sided"), t.get("p_holm"), t.get("reading"))
     for fam, tests in sens.items():
         print(fam, {k: t.get("reading") for k, t in tests.items()})
+    print("post_hoc residual", {k: (t.get("rr"), t.get("p"), t.get("reading")) for k, t in post["residual_gwas_size"]["tests"].items()})
+    for rule in ("k_corrected", "k_v3"):
+        print(rule, {k: v for k, v in alt[rule].items() if k != "changes"}, "changed tertile", alt[rule]["changes"]["changed"])
     return n

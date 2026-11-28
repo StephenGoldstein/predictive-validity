@@ -71,6 +71,21 @@ def profile() -> pd.DataFrame:
     return floats(frame.query("SELECT * FROM preclin.disease_polygenicity ORDER BY mondo_id"))
 
 
+K_RULE_COLS = ("k", "k_source", "k_code", "k_via_parent", "h2_liab", "score", "ldsc_status", "category")
+
+
+def k_rule(rule: str, rows: pd.DataFrame | None = None) -> pd.DataFrame:
+    """One rule's rows of preclin.disease_polygenicity_k (migration 179; `pipeline.polygenicity k-rules`) as columns
+    suffixed with the rule (k_v3, k_v3_source, k_v3_code, k_v3_via_parent, h2_liab_v3, score_v3, ldsc_status_v3,
+    category_v3), to sit beside the profile's registered columns."""
+    if rows is None:
+        rows = floats(frame.query(f"SELECT mondo_id, {', '.join(K_RULE_COLS)} FROM preclin.disease_polygenicity_k "
+                                  "WHERE rule = %s ORDER BY mondo_id", (rule,)))
+    names = {"k": f"k_{rule}", "k_source": f"k_{rule}_source", "k_code": f"k_{rule}_code", "k_via_parent": f"k_{rule}_via_parent",
+             "h2_liab": f"h2_liab_{rule}", "score": f"score_{rule}", "ldsc_status": f"ldsc_status_{rule}", "category": f"category_{rule}"}
+    return rows[["mondo_id", *names]].rename(columns=names)
+
+
 def unit(d: pd.DataFrame, prof: pd.DataFrame) -> pd.DataFrame:
     """One row per disease in the unit: its Phase 2 entries, the profile's status, `scored`; a disease the profile
     lacks is `not_profiled` (the pre-comment check fails on it)."""
@@ -284,8 +299,11 @@ def daly(prof: pd.DataFrame) -> dict:
 
 def main() -> None:
     os.makedirs(OUT, exist_ok=True)
+    if BUILD_ID and current_build()["build_id"] != BUILD_ID:   # the unit was counted and registered on one build (review of 2026-11-27)
+        raise frame.StandAside(f"the latest programme build is not the registered build {BUILD_ID[:8]}; the registered "
+                               "outputs carry forward, and a recount needs that build")
     d = build()
-    prof = profile()
+    prof = profile().merge(k_rule("v3"), on="mondo_id", how="left")   # rule v3 beside the registered and corrected columns
     u = unit(d, prof)
     u.to_csv(os.path.join(OUT, "unit.csv"), index=False)
     m = membership(u, CUTPOINTS)
@@ -314,4 +332,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except frame.StandAside as e:
+        raise SystemExit(f"polygenicity stands aside: {e}") from e

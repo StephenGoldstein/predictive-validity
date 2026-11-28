@@ -79,15 +79,39 @@ def test_within_area_variance_share():   # Melissa's pre-join check 1
 def test_sensitivities_table_shows_the_negative_control_with_its_two_sided_p(tmp_path, monkeypatch):
     from report.render import polygenicity_sensitivities_table
     (tmp_path / "polygenicity").mkdir()
-    pd.DataFrame({"family": ["gwas_size", "negative_control"], "test": ["P1", "P1"], "rr": [1.2, 1.05], "lo": [1.0, 0.8],
-                  "hi": [1.5, 1.4], "p": [0.04, 0.3], "p_one_sided": [0.02, np.nan], "p_holm": [0.06, np.nan],
-                  "reading": ["same direction, not confirmed", "no association"], "exposed_entries": [100, 90],
-                  "exposed_events": [20, 9], "reference_entries": [100, 95], "reference_events": [10, 9]}) \
-        .to_csv(tmp_path / "polygenicity" / "sensitivities.csv", index=False)
+    pd.DataFrame({"family": ["gwas_size", "negative_control", "k_corrected", "post_hoc_residual"], "test": ["P1", "P1", "P1", "P2"],
+                  "rr": [1.2, 1.05, 1.1, 0.9], "lo": [1.0, 0.8, 0.9, 0.7], "hi": [1.5, 1.4, 1.3, 1.2], "p": [0.04, 0.3, 0.2, 0.5],
+                  "p_one_sided": [0.02, np.nan, 0.1, np.nan], "p_holm": [0.06, np.nan, 0.3, np.nan],
+                  "reading": ["same direction, not confirmed", "no association", "same direction, not confirmed", "no association"],
+                  "exposed_entries": [100, 90, 100, 100], "exposed_events": [20, 9, 20, 20], "reference_entries": [100, 95, 100, 100],
+                  "reference_events": [10, 9, 10, 10]}).to_csv(tmp_path / "polygenicity" / "sensitivities.csv", index=False)
     monkeypatch.setattr("report.render.OUT", str(tmp_path))
     out = polygenicity_sensitivities_table()
     assert "Negative control" in out and "| 0.300 |" in out and "no association" in out
     assert "concentration" not in out.lower() and "continuous" not in out.lower()
+    assert "p (one-sided; two-sided where the row says so)" in out   # review of 2026-11-27: the two-sided rows sat under "p (one-sided)"
+    assert "Corrected prevalence code (K)" in out and "Post hoc" in out and out.index("Corrected") < out.index("Post hoc")
+
+
+def test_no_score_reasons_name_every_status_the_profile_can_hold():
+    """Review of 2026-11-27: `no_effect` (a chosen study whose file holds no usable effect) had no plain label."""
+    from report.render import NO_SCORE_REASONS
+    statuses = {"no_study", "no_sumstats", "not_european", "no_case_control", "no_effect", "run_failed", "low_z",
+                "out_of_bounds", "no_k", "zero_loci", "targeted_array"}
+    assert statuses <= set(NO_SCORE_REASONS)
+
+
+def test_main_stands_aside_when_the_latest_programme_build_is_not_the_registered_one(tmp_path, monkeypatch):
+    """Review of 2026-11-27: a routine programme rebuild must not halt the whole report at this step. The step stands
+    aside (the runner carries its cached outputs forward) instead of reading the unit off another build or raising."""
+    import report.polygenicity as pg
+    from report import frame
+    monkeypatch.setattr(pg, "OUT", str(tmp_path))
+    monkeypatch.setattr(pg, "BUILD_ID", "registered")
+    monkeypatch.setattr(pg, "current_build", lambda: {"build_id": "another", "built_at": "", "snapshot": ""})
+    monkeypatch.setattr(pg, "build", lambda: pytest.fail("the step must not read the unit off another build"))
+    with pytest.raises(frame.StandAside):
+        pg.main()
 
 
 def test_profile_numeric_columns_come_back_as_floats_not_decimals():
@@ -155,3 +179,16 @@ def test_tertiles_figure_ratio_axis_uses_the_fold_tick_convention(tmp_path, monk
     for a in captured["polygenicity_tertiles"].axes:   # the house style(ax): no left spine, no tick marks
         assert not a.spines["left"].get_visible()
         assert a.xaxis.get_major_ticks()[0].tick1line.get_markersize() == 0
+
+
+def test_k_rule_frame_renames_the_long_table_columns_for_one_rule():
+    """preclin.disease_polygenicity_k (migration 179) holds one row per disease per rule; the report reads one rule's
+    rows as columns suffixed with the rule, to sit beside the profile's registered columns."""
+    from report.polygenicity import k_rule
+    rows = pd.DataFrame({"mondo_id": ["M1", "M2"], "k": [0.01, None], "k_source": ["panukb", "none"], "k_code": ["401", None],
+                         "k_via_parent": [False, False], "h2_liab": [0.1, None], "score": [50.0, None], "ldsc_status": ["ok", "no_k"],
+                         "category": [False, True]})
+    f = k_rule("v3", rows)
+    assert list(f.columns) == ["mondo_id", "k_v3", "k_v3_source", "k_v3_code", "k_v3_via_parent", "h2_liab_v3", "score_v3",
+                               "ldsc_status_v3", "category_v3"]
+    assert f.score_v3.tolist()[0] == 50.0 and f.category_v3.tolist() == [False, True]

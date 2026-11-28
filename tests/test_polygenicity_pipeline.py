@@ -181,6 +181,82 @@ def test_k_for_prefers_the_diseases_own_icd_code_over_a_descendants_code_with_mo
     k, source, code, via_parent = polygenicity.k_for("M", {}, {}, {"I10"}, ukb, descendant_codes={"H40"})
     assert (source, code, via_parent) == ("panukb", "I10", False) and abs(k - 0.05) < 1e-9
     k, source, code, via_parent = polygenicity.k_for("M", {}, {}, set(), ukb, descendant_codes={"H40"})
-    assert (source, code, via_parent) == ("panukb", "H40", True)
+    assert (source, code, via_parent) == ("panukb", "H40", False)   # a descendant's code is not "through the parent" (review of 2026-11-27)
     k, source, code, via_parent = polygenicity.k_for("M", {}, {}, {"I109"}, ukb, descendant_codes={"H40"})
     assert (code, via_parent) == ("I10", True)
+
+
+def test_k_for_registered_reproduces_the_rule_the_profile_was_built_with():
+    """The registered profile (gate of 2026-11-25) took the Pan-UKB code with most cases among the disease's own codes,
+    its descendants' codes and their three-character parents, in one pool, ranges unexpanded, and applied the 100-case
+    floor to that one row. It stands as fixed, so a rebuild reproduces it beside the corrected rule."""
+    from pipeline import polygenicity
+    ukb = pd.DataFrame({"phenocode": ["I10", "H40", "E78"], "n_cases_EUR": [20_000, 50_000, 50],
+                        "n_controls_EUR": [380_000, 350_000, 400_000]})
+    # the own range stays a string no phenocode matches; the descendant's H40 has more cases than the range's parent I10
+    assert polygenicity.k_for_registered("M", {}, {}, {"I10-I16", "H40"}, ukb) == (50_000 / 400_000, "panukb", "H40", False)
+    assert polygenicity.k_for_registered("M", {}, {}, {"E78"}, ukb) == (None, "none", None, False)   # top row under the floor
+    assert polygenicity.k_for_registered("M", {}, {}, {"I109"}, ukb) == (20_000 / 400_000, "panukb", "I10", True)
+    assert polygenicity.k_for_registered("M", {"M": ("exact", 1)}, {1: 500.0}, {"H40"}, ukb) == (0.005, "gbd", None, False)
+
+
+def test_corrected_k_fields_rescore_the_stored_run_under_the_corrected_prevalence():
+    """The corrected-K sensitivity (Melissa's decision of 2026-11-26): the K-dependent columns recomputed from the
+    stored run under the own-code-first K, the registered columns untouched; a disease whose run gave no estimate
+    keeps its status; one that had no K and gains one is scored."""
+    from pipeline import polygenicity
+    row = {"ldsc_status": "ok", "h2_obs": 0.05, "h2_obs_se": 0.005, "loci": 10, "n_cases": 10_000, "n_controls": 90_000}
+    out = polygenicity.corrected_k_fields(row, n_snps=1_100_000, k=0.01)
+    assert out["ldsc_status_k_corrected"] == "ok"
+    assert abs(out["h2_liab_k_corrected"] - polygenicity.liability_h2(0.05, 0.1, 0.01)) < 1e-12
+    assert abs(out["score_k_corrected"] - 10 / out["h2_liab_k_corrected"]) < 1e-9
+    assert polygenicity.corrected_k_fields({**row, "ldsc_status": "no_k"}, n_snps=1_100_000, k=None) == \
+        {"h2_liab_k_corrected": None, "score_k_corrected": None, "ldsc_status_k_corrected": "no_k"}
+    assert polygenicity.corrected_k_fields({**row, "ldsc_status": "no_k"}, n_snps=1_100_000, k=0.01)["ldsc_status_k_corrected"] == "ok"
+    none = {"ldsc_status": "no_study", "h2_obs": None, "h2_obs_se": None, "loci": None, "n_cases": None, "n_controls": None}
+    assert polygenicity.corrected_k_fields(none, n_snps=None, k=0.01) == \
+        {"h2_liab_k_corrected": None, "score_k_corrected": None, "ldsc_status_k_corrected": "no_study"}
+
+
+def test_expand_icd9_ranges_and_phecode_matching():
+    """Rule v3 (2026-11-27): MONDO's ICD-9 cross-references reach Pan-UKB's phecodes, which are numbered from ICD-9:
+    the exact string when it is a phecode, else its integer part."""
+    from pipeline import polygenicity
+    assert polygenicity.expand_icd9("401-405") == {"401", "402", "403", "404", "405"}
+    assert polygenicity.expand_icd9("571.6") == {"571.6"} and polygenicity.expand_icd9("428") == {"428"}
+    phecodes = {"401", "401.1", "571.6", "242", "242.1", "696"}
+    assert polygenicity.phecode_matches({"401.9"}, phecodes) == {"401"}
+    assert polygenicity.phecode_matches({"571.6"}, phecodes) == {"571.6"}
+    assert polygenicity.phecode_matches({"242.0", "696.0", "999.9"}, phecodes) == {"242", "696"}
+
+
+def test_is_category_term():
+    """A MONDO term that stands for a chapter (eye disorder, cardiovascular disorder) gets no K under v3 rather than one
+    member's: its own cross-reference is a range of ten or more codes, or it has more than thirty descendant codes."""
+    from pipeline import polygenicity
+    assert polygenicity.is_category({"I00-I99"}, set(), 175) is True
+    assert polygenicity.is_category(set(), {"800-999"}, 9) is True
+    assert polygenicity.is_category(set(), set(), 241) is True
+    assert polygenicity.is_category({"I10-I16"}, {"401-405"}, 12) is False
+    assert polygenicity.is_category({"K743"}, {"571.6"}, 0) is False
+
+
+def test_k_for_v3_takes_own_code_or_phecode_then_gbd_then_pooled_descendants():
+    from pipeline import polygenicity
+    ukb = pd.DataFrame({"phenocode": ["I12", "I48", "I46", "K74", "L40"], "n_cases_EUR": [1_608, 19_218, 1_349, 1_145, 2_868],
+                        "n_controls_EUR": [418_923, 401_313, 419_182, 419_386, 417_663]})
+    phe = pd.DataFrame({"phenocode": ["401", "571.6", "427"], "n_cases_EUR": [94_311, 314, 31_341], "n_controls_EUR": [325_488, 408_402, 384_657]})
+    own10 = {f"I{i}" for i in range(10, 17)}
+    # hypertensive disorder: I10 is not in the ICD-10 manifest; the own phecode 401 (through ICD-9 401-405) beats own I12
+    k, source, code, via = polygenicity.k_for_v3("H", {}, {}, own10, {"401", "402", "403", "404", "405"}, set(), set(), ukb, phe)
+    assert (source, code, via) == ("panukb", "401", False) and abs(k - 94_311 / (94_311 + 325_488)) < 1e-12
+    # PBC: own K74.3 is four characters, so K74 is only a parent; the exact phecode 571.6 (314 cases) comes first
+    assert polygenicity.k_for_v3("P", {}, {}, {"K743"}, {"571.6"}, set(), set(), ukb, phe)[2] == "571.6"
+    # GBD beats a Pan-UKB pick under 1,000 cases; a pick of 1,000 or more beats GBD
+    assert polygenicity.k_for_v3("G", {"G": ("exact", 1)}, {1: 500.0}, set(), {"571.6"}, set(), set(), ukb, phe) == (0.005, "gbd", None, False)
+    assert polygenicity.k_for_v3("G", {"G": ("exact", 1)}, {1: 500.0}, {"K74"}, set(), set(), set(), ukb, phe)[1:3] == ("panukb", "K74")
+    # cardiac rhythm disease: no own code, no GBD; the descendants' codes and their parents are one pool, so I48 beats I46
+    assert polygenicity.k_for_v3("C", {}, {}, set(), set(), {"I46", "I480"}, set(), ukb, phe)[2] == "I48"
+    # a parent of an own four-character code is "via parent"; a category term gets nothing
+    assert polygenicity.k_for_v3("S", {}, {}, {"L405"}, set(), set(), set(), ukb, phe)[2:] == ("L40", True)
+    assert polygenicity.k_for_v3("X", {}, {}, set(), set(), {"I46"}, set(), ukb, phe, category=True) == (None, "none", None, False)

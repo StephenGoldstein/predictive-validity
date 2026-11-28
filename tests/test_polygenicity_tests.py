@@ -21,7 +21,10 @@ def synthetic(n=600, seed=0):
                          "conc_tertile": rng.choice(["bottom", "middle", "top"], n),
                          "mendelian_form": rng.integers(0, 2, n).astype(bool), "log10_n_eff": 4 + rng.random(n),
                          "scored": True, "stop_no_benefit": mode,
-                         "stop_unrelated": (rng.random(n) < 0.1).astype(float), "stop_safety": (rng.random(n) < 0.05).astype(float)})
+                         "stop_unrelated": (rng.random(n) < 0.1).astype(float), "stop_safety": (rng.random(n) < 0.05).astype(float),
+                         "tertile_k": rng.choice(["bottom", "middle", "top", "none"], n),
+                         "tertile_v3": rng.choice(["bottom", "middle", "top", "none"], n),
+                         "tertile_resid": rng.choice(["bottom", "middle", "top"], n)})
 
 
 def test_cohort_keeps_the_two_levels_with_a_resolved_target_and_the_right_phases():
@@ -53,11 +56,60 @@ def test_p3_is_not_estimable_when_a_cell_has_no_event():
     assert "rr" not in r and r["estimable"] is False and r["cells"]["top_genetics"]["events"] == 0
 
 
-def test_sensitivities_have_the_three_amended_families():   # Melissa's 2026-11-24 decision
+def test_sensitivities_have_the_three_amended_families_and_the_corrected_k():   # 2026-11-24 decision; corrected K 2026-11-26
     s = sensitivities(synthetic())
-    assert set(s) == {"gwas_size", "mendelian_form", "negative_control"}
+    assert set(s) == {"gwas_size", "mendelian_form", "negative_control", "k_corrected", "k_v3"}
     assert set(s["mendelian_form"]) == {"P1", "P2", "P3"} and "p_holm" in s["gwas_size"]["P1"]
     assert set(s["negative_control"]) == {"P1"}
+    assert set(s["k_corrected"]) == {"P1", "P2", "P3"} and "p_holm" in s["k_corrected"]["P1"]   # Holm within, on tertile_k
+    assert set(s["k_v3"]) == {"P1", "P2", "P3"} and "p_holm" in s["k_v3"]["P1"]                 # rule v3, on tertile_v3
+
+
+def test_residual_score_is_log10_score_regressed_on_log10_n_eff_over_the_scored_diseases():
+    """Melissa's decision of 2026-11-26, the post hoc: the residual of log10 score on log10 effective sample size,
+    fit over the scored diseases only."""
+    from report.polygenicity_tests import residual_score
+    u = pd.DataFrame({"mondo_id": list("abcdef"), "scored": [True] * 5 + [False], "log10_score": [1.0, 2.0, 3.0, 4.0, 5.5, 9.0],
+                      "n_eff": [1e3, 1e4, 1e5, 1e6, 1e7, 1e9]})
+    r = residual_score(u)
+    assert r["diseases"] == 5 and abs(r["slope"] - 1.1) < 1e-9   # the unscored disease is out of the fit
+    assert set(r["residual"].index) == set("abcde") and abs(r["residual"].sum()) < 1e-9 and 0 < r["r2"] <= 1
+
+
+def test_post_hoc_residual_tests_p1_and_p2_two_sided_without_holm():
+    from report.polygenicity_tests import post_hoc
+    r = post_hoc(synthetic())
+    assert set(r) == {"P1", "P2"}
+    for t in r.values():
+        assert "rr" in t and "p" in t and "p_one_sided" not in t and "p_holm" not in t and t["sides"] == 2
+        assert t["reading"] in ("association", "no association") and t["direction"] in ("registered", "opposite")
+
+
+def test_tertile_changes_count_the_diseases_whose_tertile_differs_between_two_cuts():
+    from report.polygenicity_tests import tertile_changes
+    u = pd.DataFrame({"mondo_id": list("abcdef"), "tertile": ["top", "top", "middle", "bottom", "none", "bottom"],
+                      "tertile_k": ["top", "middle", "middle", "none", "bottom", "bottom"]})
+    assert tertile_changes(u, "tertile", "tertile_k") == {"changed": 3, "between_tertiles": 1, "lost_score": 1, "gained_score": 1,
+                                                          "diseases": ["b", "d", "e"]}
+
+
+def test_alternative_tertiles_recut_the_corrected_k_and_residual_scores_and_count_the_moves():
+    from report.polygenicity_tests import alternative_tertiles
+    ids = [f"M{i}" for i in range(9)]
+    score = [10, 20, 30, 40, 50, 60, 70, 80, 90.0]
+    u = pd.DataFrame({"mondo_id": ids, "scored": [True] * 9, "score": score, "log10_score": np.log10(score),
+                      "n_eff": 10.0 ** np.arange(3, 12), "score_k_corrected": [90, 80, 70, 40, 50, 60, 30, 20, 10.0],
+                      "ldsc_status_k_corrected": ["ok"] * 8 + ["no_k"],
+                      "score_v3": score, "ldsc_status_v3": ["no_k"] + ["ok"] * 8, "category_v3": [True] + [False] * 8})
+    u2, meta = alternative_tertiles(u, cuts=(30.0, 60.0))
+    assert u2.tertile_v3.iloc[0] == "none" and meta["k_v3"]["scored_diseases"] == 8 and meta["k_v3"]["category_scored"] == 1
+    assert meta["k_v3"]["changes"]["lost_score"] == 1 and meta["k_v3"]["changes"]["gained_score"] == 0
+    assert list(u2.tertile) == ["bottom"] * 3 + ["middle"] * 3 + ["top"] * 3
+    assert list(u2.tertile_k) == ["top", "top", "top", "bottom", "middle", "middle", "bottom", "bottom", "none"]
+    assert meta["k_corrected"]["scored_diseases"] == 8 and meta["k_corrected"]["changes"]["changed"] == 7
+    assert meta["k_corrected"]["changes"] == {"changed": 7, "between_tertiles": 6, "lost_score": 1, "gained_score": 0,
+                                              "diseases": ["M0", "M1", "M2", "M3", "M6", "M7", "M8"]}
+    assert sorted(u2.tertile_resid.value_counts().tolist()) == [3, 3, 3] and meta["residual"]["diseases"] == 9
 
 
 def test_negative_control_leaves_safety_stops_out_and_is_two_sided():
